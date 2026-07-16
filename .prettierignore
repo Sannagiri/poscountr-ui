@@ -1,0 +1,8 @@
+dist
+node_modules
+coverage
+*.min.js
+package-lock.json
+
+# Faithful copy of the user-provided standards doc — never auto-reformatted.
+docs/coding-standards.md

@@ -1,0 +1,478 @@
+import type { ReactNode } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { MoreVertical } from 'lucide-react';
+
+import { Button } from '@/components/Button';
+import { Checkbox } from '@/components/Checkbox';
+import type { DropdownMenuEntry } from '@/components/DropdownMenu';
+import { DropdownMenu } from '@/components/DropdownMenu';
+import { EmptyState } from '@/components/EmptyState';
+import { ErrorMessage } from '@/components/ErrorMessage';
+import { ListToolbar } from '@/components/ListToolbar';
+import { Loader } from '@/components/Loader';
+import { useFillRemainingHeight } from '@/hooks/useFillRemainingHeight';
+import { useInfiniteReveal } from '@/hooks/useInfiniteReveal';
+import { cn } from '@/utils/cn';
+import { applyFilterValues, filterBySearch, hasActiveListFilters } from '@/utils/listFilter';
+
+import type {
+  DataTableColumn,
+  DataTableFilter,
+  DataTableRowAction,
+  DataTableSort,
+  SortDirection,
+} from './DataTable.types';
+
+export interface DataTableProps<TRow> {
+  columns: DataTableColumn<TRow>[];
+  data: TRow[];
+  getRowKey: (row: TRow) => string;
+  isLoading?: boolean;
+  errorMessage?: string | null;
+  onRetry?: () => void;
+  emptyTitle?: string;
+  emptyDescription?: string;
+  sort?: DataTableSort;
+  onSortChange?: (sort: DataTableSort) => void;
+  onRowClick?: (row: TRow) => void;
+  /**
+   * Enables the built-in search box, filtering `data` client-side against
+   * this row→string extractor. Omit to leave search off (e.g. a
+   * server-paginated table where search has to be a server round-trip).
+   */
+  getSearchValue?: (row: TRow) => string;
+  searchPlaceholder?: string;
+  /** Column filter dropdowns, rendered next to the search box. Client-side, same caveat as search. */
+  filters?: DataTableFilter<TRow>[];
+  /**
+   * Extra filter controls rendered in the same toolbar strip as the search
+   * box, before it — for filters that are server-side (re-query on change)
+   * rather than a post-fetch client-side narrowing of `data`, so they can't
+   * be expressed as a `DataTableFilter`. `AuditLogPage`'s business/action
+   * selects are the motivating case: they used to sit in their own row above
+   * the table entirely, which read as disconnected from the table they
+   * actually filter.
+   */
+  filtersSlot?: ReactNode;
+  /** Adds a checkbox column for bulk selection. Selection is scoped to whatever's currently rendered (post search/filter). */
+  selectable?: boolean;
+  /**
+   * Rendered in a toolbar strip above the table whenever at least one row is
+   * selected — receives the selected rows and a callback to clear selection
+   * (e.g. after a bulk action completes). Only meaningful with `selectable`.
+   */
+  bulkActions?: (selectedRows: TRow[], clearSelection: () => void) => ReactNode;
+  /** Adds a "⋮" action-menu column, rendered last, built from this row's actions. */
+  rowActions?: (row: TRow) => DataTableRowAction<TRow>[];
+  /** How many rows to render initially and per additional batch while scrolling. Default 25. */
+  batchSize?: number;
+  /** Never shrinks the row area below this many pixels, even on a very short viewport. Default 240. */
+  minBodyHeight?: number;
+}
+
+const DEFAULT_BATCH_SIZE = 25;
+
+/**
+ * The one table every list screen in the app uses instead of hand-rolling a
+ * `<table>` (docs/coding-standards.md §7) — orders, tenants, staff, products,
+ * all of it.
+ *
+ * Built as CSS Grid rows, not a native `<table>`. The header row and every
+ * body row are each their own grid container using the *exact same*
+ * `gridTemplateColumns` string (built once, from `columns` plus the optional
+ * checkbox/action tracks) — that is what guarantees the columns line up
+ * pixel-for-pixel no matter what a row's content looks like. ARIA
+ * `table`/`row`/`columnheader`/`cell` roles keep it announced as a table to
+ * assistive tech.
+ *
+ * The row area is a fixed-height scroll box — only the table's own content
+ * scrolls (infinite scroll via `useInfiniteReveal`), not the whole page —
+ * but that height is *computed*, not a static guess: `useFillRemainingHeight`
+ * measures how much vertical space is actually left below the table on
+ * *this* screen and fills exactly down to the bottom of the viewport, so
+ * the box ends up taller on a 27" monitor than on a laptop instead of using
+ * the same fixed number everywhere (too short on a big screen, too tall —
+ * or scrolling the whole page — on a small one). The header stays visible
+ * (`sticky`) within that same box.
+ */
+export function DataTable<TRow>({
+  columns,
+  data,
+  getRowKey,
+  isLoading = false,
+  errorMessage = null,
+  onRetry,
+  emptyTitle = 'Nothing here yet',
+  emptyDescription,
+  sort,
+  onSortChange,
+  onRowClick,
+  getSearchValue,
+  searchPlaceholder = 'Search…',
+  filters,
+  filtersSlot,
+  selectable = false,
+  bulkActions,
+  rowActions,
+  batchSize = DEFAULT_BATCH_SIZE,
+  minBodyHeight = 240,
+}: DataTableProps<TRow>) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const bodyHeight = useFillRemainingHeight(scrollContainerRef, { minHeight: minBodyHeight });
+
+  const leadingTrackWidth = selectable ? '40px' : null;
+  const trailingTrackWidth = rowActions ? '48px' : null;
+  const gridTemplateColumns = useMemo(
+    () =>
+      [leadingTrackWidth, ...columns.map((column) => column.width ?? '1fr'), trailingTrackWidth]
+        .filter(Boolean)
+        .join(' '),
+    [columns, leadingTrackWidth, trailingTrackWidth],
+  );
+
+  const hasToolbar = Boolean(getSearchValue) || Boolean(filters?.length) || Boolean(filtersSlot);
+  const hasActiveFilters = hasActiveListFilters(searchTerm, filterValues);
+
+  const visibleRows = useMemo(() => {
+    const searched = filterBySearch(data, searchTerm, getSearchValue);
+    return applyFilterValues(searched, filters ?? [], filterValues);
+  }, [data, filters, filterValues, getSearchValue, searchTerm]);
+
+  const { visibleCount, sentinelRef, hasMore } = useInfiniteReveal({
+    totalCount: visibleRows.length,
+    batchSize,
+    resetKey: `${searchTerm}|${JSON.stringify(filterValues)}`,
+    rootRef: scrollContainerRef,
+  });
+  const renderedRows = useMemo(
+    () => visibleRows.slice(0, visibleCount),
+    [visibleRows, visibleCount],
+  );
+
+  const selectedRows = useMemo(
+    () => data.filter((row) => selectedKeys.has(getRowKey(row))),
+    [data, getRowKey, selectedKeys],
+  );
+
+  function clearSelection() {
+    setSelectedKeys(new Set());
+  }
+
+  function toggleRow(row: TRow) {
+    const key = getRowKey(row);
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  const renderedKeys = renderedRows.map((row) => getRowKey(row));
+  const allRenderedSelected =
+    renderedKeys.length > 0 && renderedKeys.every((key) => selectedKeys.has(key));
+  const someRenderedSelected = renderedKeys.some((key) => selectedKeys.has(key));
+  const headerCheckedState: boolean | 'indeterminate' = allRenderedSelected
+    ? true
+    : someRenderedSelected
+      ? 'indeterminate'
+      : false;
+
+  function toggleSelectAllRendered() {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (allRenderedSelected) {
+        renderedKeys.forEach((key) => next.delete(key));
+      } else {
+        renderedKeys.forEach((key) => next.add(key));
+      }
+      return next;
+    });
+  }
+
+  function clearAllFilters() {
+    setSearchTerm('');
+    setFilterValues({});
+  }
+
+  function handleSortClick(column: DataTableColumn<TRow>) {
+    if (!column.sortable || !onSortChange) return;
+    const nextDirection: SortDirection =
+      sort?.key === column.key && sort.direction === 'asc' ? 'desc' : 'asc';
+    onSortChange({ key: column.key, direction: nextDirection });
+  }
+
+  const toolbar = hasToolbar ? (
+    <ListToolbar
+      searchValue={getSearchValue ? searchTerm : undefined}
+      onSearchChange={getSearchValue ? setSearchTerm : undefined}
+      searchPlaceholder={searchPlaceholder}
+      leading={filtersSlot}
+      filters={(filters ?? []).map((filter) => ({
+        key: filter.key,
+        label: filter.label,
+        value: filterValues[filter.key] ?? 'all',
+        onChange: (value) => setFilterValues((prev) => ({ ...prev, [filter.key]: value })),
+        options: filter.options,
+      }))}
+      hasActiveFilters={hasActiveFilters}
+      onClear={clearAllFilters}
+    />
+  ) : null;
+
+  if (isLoading) {
+    return (
+      <div>
+        {toolbar}
+        <Loader label="Loading…" />
+      </div>
+    );
+  }
+
+  if (errorMessage) {
+    return (
+      <div>
+        {toolbar}
+        <ErrorMessage message={errorMessage} onRetry={onRetry} />
+      </div>
+    );
+  }
+
+  if (visibleRows.length === 0) {
+    const isFilteredEmpty = data.length > 0 && hasActiveFilters;
+    return (
+      <div>
+        {toolbar}
+        <EmptyState
+          title={isFilteredEmpty ? 'No matches' : emptyTitle}
+          description={
+            isFilteredEmpty ? 'Try a different search term or clear the filters.' : emptyDescription
+          }
+          action={
+            isFilteredEmpty ? (
+              <Button variant="secondary" size="sm" onClick={clearAllFilters}>
+                Clear filters
+              </Button>
+            ) : undefined
+          }
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {toolbar}
+      {selectable && selectedRows.length > 0 ? (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-control bg-brand/5 px-3.5 py-2.5">
+          <span className="text-xs font-semibold text-ink">{selectedRows.length} selected</span>
+          <div className="flex flex-wrap items-center gap-2">
+            {bulkActions?.(selectedRows, clearSelection)}
+          </div>
+          <button
+            type="button"
+            onClick={clearSelection}
+            className="ml-auto text-xs font-semibold text-accent hover:text-accent-dark"
+          >
+            Clear selection
+          </button>
+        </div>
+      ) : null}
+      <div
+        ref={scrollContainerRef}
+        className="scrollbar-thin overflow-auto rounded-control border border-border"
+        style={{ height: bodyHeight }}
+      >
+        <div role="table" className="w-full text-sm">
+          <div role="rowgroup" className="sticky top-0 z-10 rounded-t-control bg-surface">
+            <div
+              role="row"
+              style={{ gridTemplateColumns }}
+              className="grid items-center border-b border-border"
+            >
+              {selectable ? (
+                <div role="columnheader" className="flex items-center px-3 py-2.5">
+                  <Checkbox
+                    checked={headerCheckedState}
+                    onCheckedChange={toggleSelectAllRendered}
+                    label="Select all rows"
+                  />
+                </div>
+              ) : null}
+              {columns.map((column) => {
+                const headerContent = (
+                  <>
+                    {column.header}
+                    {column.sortable && sort?.key === column.key
+                      ? sort.direction === 'asc'
+                        ? ' ↑'
+                        : ' ↓'
+                      : null}
+                  </>
+                );
+                return (
+                  <div
+                    key={column.key}
+                    role="columnheader"
+                    aria-sort={
+                      sort?.key === column.key
+                        ? sort.direction === 'asc'
+                          ? 'ascending'
+                          : 'descending'
+                        : undefined
+                    }
+                    className={cn(
+                      'min-w-0 px-3 py-2.5 text-xs font-semibold text-ink-soft',
+                      column.align === 'right' && 'text-right',
+                      column.align === 'center' && 'text-center',
+                    )}
+                  >
+                    {column.sortable ? (
+                      <button
+                        type="button"
+                        onClick={() => handleSortClick(column)}
+                        className="block w-full truncate text-left font-semibold hover:text-ink"
+                      >
+                        {headerContent}
+                      </button>
+                    ) : (
+                      <span className="block truncate">{headerContent}</span>
+                    )}
+                  </div>
+                );
+              })}
+              {rowActions ? <div role="columnheader" className="px-2" /> : null}
+            </div>
+          </div>
+          <div role="rowgroup">
+            {renderedRows.map((row) => {
+              const key = getRowKey(row);
+              const isSelected = selectedKeys.has(key);
+              return (
+                <div
+                  key={key}
+                  role="row"
+                  style={{ gridTemplateColumns }}
+                  onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  onKeyDown={
+                    onRowClick
+                      ? (event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            onRowClick(row);
+                          }
+                        }
+                      : undefined
+                  }
+                  tabIndex={onRowClick ? 0 : undefined}
+                  className={cn(
+                    'grid items-center border-b border-border last:border-none',
+                    isSelected && 'bg-brand/5',
+                    onRowClick &&
+                      'cursor-pointer hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/40',
+                  )}
+                >
+                  {selectable ? (
+                    // This cell's only interaction is blocking its click from
+                    // bubbling into the row's own `onRowClick` — the actual
+                    // interactive control is the `Checkbox` inside it, which
+                    // already has its own keyboard/ARIA handling.
+                    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/click-events-have-key-events
+                    <div
+                      role="cell"
+                      className="flex items-center px-3 py-2.5"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleRow(row)}
+                        label="Select row"
+                      />
+                    </div>
+                  ) : null}
+                  {columns.map((column) => (
+                    <div
+                      key={column.key}
+                      role="cell"
+                      className={cn(
+                        'min-w-0 px-3 py-3 text-ink',
+                        column.align === 'right' && 'text-right',
+                        column.align === 'center' && 'text-center',
+                        !column.render && (column.truncate ?? true) && 'truncate',
+                      )}
+                    >
+                      {column.render
+                        ? column.render(row)
+                        : String((row as Record<string, unknown>)[column.key] ?? '')}
+                    </div>
+                  ))}
+                  {rowActions ? (
+                    // Same as the checkbox cell above — only blocks bubbling
+                    // into the row click; the kebab button/menu inside is the
+                    // real interactive element.
+                    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/click-events-have-key-events
+                    <div
+                      role="cell"
+                      className="flex items-center justify-center px-2"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <RowActionsMenu row={row} actions={rowActions(row)} />
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+            {hasMore ? (
+              <div ref={sentinelRef} className="flex justify-center pb-4 pt-3">
+                <Loader size="sm" />
+              </div>
+            ) : (
+              // Breathing room below the last row so it doesn't sit flush
+              // against the scroll box's bottom edge — without this the last
+              // row (or the box's own rounded corner/border) reads as
+              // congested, especially since the box's height is a computed
+              // viewport fill rather than a height that happens to end right
+              // after the last row.
+              <div className="pb-4" aria-hidden="true" />
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RowActionsMenu<TRow>({
+  row,
+  actions,
+}: {
+  row: TRow;
+  actions: DataTableRowAction<TRow>[];
+}) {
+  const items: DropdownMenuEntry[] = actions.map((action) => ({
+    label: action.label,
+    icon: action.icon,
+    destructive: action.destructive,
+    disabled: action.disabled?.(row) ?? false,
+    onSelect: () => action.onSelect(row),
+  }));
+
+  return (
+    <DropdownMenu
+      align="end"
+      trigger={
+        <button
+          type="button"
+          aria-label="Row actions"
+          className="flex h-7 w-7 items-center justify-center rounded-control text-ink-faint hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+        >
+          <MoreVertical size={16} />
+        </button>
+      }
+      items={items}
+    />
+  );
+}
