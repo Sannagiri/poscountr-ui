@@ -36,6 +36,26 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (token) {
     config.headers.set('Authorization', `Bearer ${token}`);
   }
+  // Every GET here backs a TanStack Query cache that already owns its own
+  // freshness (staleTime/invalidateQueries) — the browser's own HTTP cache
+  // has no business second-guessing that. Without this, a GET the browser
+  // considers still-fresh can be served straight from disk cache on the
+  // very next `invalidateQueries`-triggered refetch instead of hitting the
+  // network, so a just-created row doesn't show up until something forces
+  // a true reload.
+  //
+  // This used to be done with `Cache-Control`/`Pragma` request headers, but
+  // those aren't in `django-cors-headers`' default `Access-Control-Allow-
+  // Headers` list (no `CORS_ALLOW_HEADERS` override exists in this
+  // backend's settings) — a custom header outside that list fails the
+  // browser's CORS preflight and blocks the request outright, which is
+  // exactly what broke `/me/` (and every other authenticated GET) right
+  // after that change. A unique query param defeats the browser's HTTP
+  // cache the same way without adding any header at all, so there's
+  // nothing for a preflight to reject.
+  if (config.method?.toLowerCase() === 'get') {
+    config.params = { ...(config.params as Record<string, unknown> | undefined), _: Date.now() };
+  }
   return config;
 });
 

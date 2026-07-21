@@ -3,6 +3,7 @@
  * `import { Button, Card } from '@/components'` over deep-importing each
  * component's folder (docs/coding-standards.md §24).
  */
+export * from './AvatarStack';
 export * from './Badge';
 export * from './Breadcrumb';
 export * from './Button';
@@ -28,3 +29,4 @@ export * from './Select';
 export * from './Tabs';
 export * from './Toast';
 export * from './Tooltip';
+export * from './UsageMeter';

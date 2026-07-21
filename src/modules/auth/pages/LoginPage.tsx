@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import { Info } from 'lucide-react';
@@ -6,6 +6,7 @@ import { Info } from 'lucide-react';
 import { Button, Card, Input } from '@/components';
 import { describeApiError } from '@/utils/errors';
 
+import { CompactLogo } from '../components/CompactLogo';
 import { LoginMarketingPanel } from '../components/LoginMarketingPanel';
 import { PinPad } from '../components/PinPad';
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -17,7 +18,7 @@ import {
   identifySchema,
   looksLikeEmail,
   passwordLoginSchema,
-  pinSchema,
+  pinLoginValueSchema,
 } from '../validations/auth.validation';
 
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -58,8 +59,22 @@ export function LoginPage() {
   const {
     register: registerPassword,
     handleSubmit: handlePasswordSubmit,
+    setFocus: setPasswordFocus,
     formState: { errors: passwordErrors },
   } = useForm<PasswordLoginFormValues>({ resolver: zodResolver(passwordLoginSchema) });
+
+  // Step 1's form (and its focused "Continue" button) unmounts entirely
+  // once `step` flips to 'credential' — the Password input below is a
+  // brand-new DOM node, so nothing carries focus over to it. Without this,
+  // submitting step 1 with Enter landed here with no caret showing until
+  // the person clicked into the field themselves. `setFocus` (not a plain
+  // `autoFocus` prop, which eslint-plugin-jsx-a11y flags) focuses through
+  // the same ref React Hook Form already registered.
+  useEffect(() => {
+    if (step === 'credential' && identifyResult?.authMethod !== 'pin') {
+      setPasswordFocus('password');
+    }
+  }, [step, identifyResult, setPasswordFocus]);
 
   const identifyMutation = useMutation({
     mutationFn: authService.identify,
@@ -81,7 +96,17 @@ export function LoginPage() {
       const user = await authService.me();
       setSession(result.accessToken, result.refreshToken, user);
       if (result.mustChangePin) {
-        navigate('/change-pin', { state: { currentPin: pin } });
+        // ChangePinPage needs enough to log back in with the *new* PIN once
+        // it's set (see that page's doc comment) — `username`/`tenantSlug`
+        // travel here alongside `currentPin` since `mustChangePin` only ever
+        // happens on the PIN path (STAFF_PIN_ROLES), never password login.
+        navigate('/change-pin', {
+          state: {
+            currentPin: pin,
+            username: identifyValues?.identity,
+            tenantSlug: identifyValues?.tenantSlug || undefined,
+          },
+        });
         return;
       }
       // Not a hardcoded '/dashboard' — ultra_admin's home is '/platform'.
@@ -116,7 +141,11 @@ export function LoginPage() {
 
   function onPinSubmit() {
     if (!identifyValues) return;
-    const parsed = pinSchema.safeParse(pin);
+    // Shape check only (6 numeric digits) — not the stricter "not all one
+    // digit / not sequential" policy `ChangePinPage` enforces when *setting*
+    // a PIN. That policy must never block logging in, since the backend's
+    // own default PIN for a new manager is the all-same-digit `000000`.
+    const parsed = pinLoginValueSchema.safeParse(pin);
     if (!parsed.success) {
       setFormError(parsed.error.issues[0]?.message ?? 'Enter a valid PIN');
       return;
@@ -252,31 +281,6 @@ export function LoginPage() {
           </Card>
         </div>
       </div>
-    </div>
-  );
-}
-
-function CompactLogo() {
-  return (
-    <div className="flex items-center gap-2.5">
-      <svg width="30" height="30" viewBox="0 0 100 100" fill="none" aria-hidden="true">
-        <rect width="100" height="100" rx="24" fill="#111830" />
-        <path
-          d="M66 22 L30 22 Q18 22 18 34 L18 68 Q18 76 28 76"
-          stroke="#5DA0FF"
-          strokeWidth="9"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-        />
-        <rect x="31" y="36" width="34" height="7" rx="3.5" fill="white" opacity="0.88" />
-        <circle cx="70" cy="76" r="13" fill="#FF6B2B" />
-        <circle cx="70" cy="76" r="6" fill="white" />
-      </svg>
-      <span className="font-display text-base font-black tracking-tight text-ink">
-        POS<span className="text-brand">C</span>
-        <span className="text-ink-faint">ountr</span>
-      </span>
     </div>
   );
 }

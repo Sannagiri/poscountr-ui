@@ -18,6 +18,8 @@ export interface BusinessCardGridProps {
   onEdit: (business: BusinessEntity) => void;
   onManageLocations: (business: BusinessEntity) => void;
   onToggleStatus: (business: BusinessEntity) => void;
+  /** Forwarded to every card — see `BusinessCardProps.activationBlockedReason`. */
+  activationBlockedReason?: string;
   batchSize?: number;
 }
 
@@ -42,6 +44,7 @@ export function BusinessCardGrid({
   onEdit,
   onManageLocations,
   onToggleStatus,
+  activationBlockedReason,
   batchSize = DEFAULT_BATCH_SIZE,
 }: BusinessCardGridProps) {
   const { visibleCount, sentinelRef, hasMore } = useInfiniteReveal({
@@ -88,6 +91,7 @@ export function BusinessCardGrid({
             onEdit={onEdit}
             onManageLocations={onManageLocations}
             onToggleStatus={onToggleStatus}
+            activationBlockedReason={activationBlockedReason}
           />
         ))}
       </div>

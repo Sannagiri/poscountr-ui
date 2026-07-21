@@ -29,9 +29,7 @@ type PendingToggle = { member: TeamMember; kind: 'deactivate' | 'activate' } | n
 
 /** Search matches name and email. */
 function getAdminSearchValue(member: TeamMember): string {
-  return [`${member.firstName} ${member.lastName}`.trim(), member.email]
-    .filter(Boolean)
-    .join(' ');
+  return [`${member.firstName} ${member.lastName}`.trim(), member.email].filter(Boolean).join(' ');
 }
 
 /**
@@ -160,17 +158,6 @@ export function AdminsPanel() {
 
   return (
     <div>
-      <div className="mb-3.5 flex justify-end">
-        <Button
-          onClick={() => {
-            setAddError(null);
-            setAddOpen(true);
-          }}
-        >
-          Add admin
-        </Button>
-      </div>
-
       <Card>
         <DataTable
           columns={columns}
@@ -183,6 +170,16 @@ export function AdminsPanel() {
           emptyDescription="Add another tenant_admin to share access to this account."
           getSearchValue={getAdminSearchValue}
           searchPlaceholder="Search admins…"
+          toolbarTrailing={
+            <Button
+              onClick={() => {
+                setAddError(null);
+                setAddOpen(true);
+              }}
+            >
+              Add admin
+            </Button>
+          }
           rowActions={() => rowActions}
         />
       </Card>

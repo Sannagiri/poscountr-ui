@@ -2,7 +2,9 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
 import { cn } from '@/utils/cn';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
+import { Tooltip } from '../Tooltip';
+
+export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'destructive';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -10,6 +12,18 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: ButtonSize;
   isLoading?: boolean;
   leadingIcon?: ReactNode;
+  /**
+   * Hover/focus text shown while `disabled` is true — for a button that's
+   * present but blocked by something outside the form itself (a license
+   * limit, a permission), where leaving the person no explanation is worse
+   * than the disabled state alone. Native `disabled` buttons don't fire
+   * mouse/focus events in any major browser (the HTML spec excludes
+   * disabled form controls from the interaction event path), so setting
+   * this wraps the button in a plain `span` and puts the `Tooltip` there
+   * instead — without that wrapper, hovering a disabled button would
+   * silently show nothing.
+   */
+  disabledReason?: string;
 }
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
@@ -17,6 +31,11 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
     'bg-brand text-white shadow-sm hover:bg-brand-dark active:bg-brand-dark disabled:bg-brand/50',
   secondary:
     'bg-white text-ink border border-border shadow-sm hover:bg-surface active:bg-surface disabled:opacity-50',
+  // Brand-colored outline — a secondary action that still wants to read as
+  // "on brand" (e.g. a template download next to a primary "Import"
+  // button) without competing with the screen's actual primary action.
+  outline:
+    'bg-white text-brand border border-brand hover:bg-brand/5 active:bg-brand/10 disabled:opacity-50',
   ghost: 'bg-transparent text-ink hover:bg-surface active:bg-surface disabled:opacity-50',
   destructive:
     'bg-danger text-white shadow-sm hover:bg-danger/90 active:bg-danger/90 disabled:bg-danger/50',
@@ -39,13 +58,14 @@ export function Button({
   isLoading = false,
   leadingIcon,
   disabled,
+  disabledReason,
   className,
   children,
   ...rest
 }: ButtonProps) {
   const isDisabled = disabled || isLoading;
 
-  return (
+  const button = (
     <button
       type="button"
       className={cn(
@@ -71,4 +91,28 @@ export function Button({
       {children}
     </button>
   );
+
+  if (isDisabled && disabledReason) {
+    return (
+      <Tooltip content={disabledReason}>
+        {/* Not actually interactive — exists purely so the Tooltip has a
+            hoverable/focusable target, since the disabled `<button>` it
+            wraps can't fire either kind of event itself (see the
+            `disabledReason` doc comment above). Block disable (not
+            `-next-line`) since Prettier is free to re-wrap this tag's
+            attributes onto their own lines, which would otherwise detach a
+            `-next-line` comment from the `tabIndex` it's meant to cover. */}
+        {/* eslint-disable jsx-a11y/no-noninteractive-tabindex */}
+        <span
+          tabIndex={0}
+          className="inline-flex rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-1"
+        >
+          {button}
+        </span>
+        {/* eslint-enable jsx-a11y/no-noninteractive-tabindex */}
+      </Tooltip>
+    );
+  }
+
+  return button;
 }

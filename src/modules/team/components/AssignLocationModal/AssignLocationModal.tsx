@@ -61,7 +61,9 @@ export function AssignLocationModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title={member ? `Assign location — ${member.firstName || member.username}` : 'Assign location'}
+      title={
+        member ? `Assign location — ${member.firstName || member.username}` : 'Assign location'
+      }
       size="sm"
       footer={
         <>

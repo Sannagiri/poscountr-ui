@@ -42,6 +42,8 @@ export interface DataTableRowAction<TRow> {
   onSelect: (row: TRow) => void;
   destructive?: boolean;
   disabled?: (row: TRow) => boolean;
+  /** Hover text shown when `disabled` returns true for this row — explains why (e.g. a license limit). */
+  disabledReason?: (row: TRow) => string | undefined;
 }
 
 export interface DataTableFilterOption {

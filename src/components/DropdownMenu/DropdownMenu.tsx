@@ -12,6 +12,14 @@ export interface DropdownMenuItem {
   /** Renders in `danger` colors — for a "Remove"/"Deactivate" style action. */
   destructive?: boolean;
   disabled?: boolean;
+  /**
+   * Native hover title — shown (browser-default tooltip) when `disabled` is
+   * true, to explain why. Deliberately the plain `title` attribute rather
+   * than the shared `Tooltip` component: `Tooltip` renders through
+   * `RadixTooltip.Trigger asChild`, which would fight with this item
+   * already being a `RadixDropdownMenu.Item` trigger for its own popover.
+   */
+  title?: string;
 }
 
 /** A `-` renders a separator line instead of an item. */
@@ -57,6 +65,7 @@ export function DropdownMenu({ trigger, items, align = 'end' }: DropdownMenuProp
                 key={entry.label}
                 disabled={entry.disabled}
                 onSelect={entry.onSelect}
+                title={entry.disabled ? entry.title : undefined}
                 className={cn(
                   'flex cursor-pointer items-center gap-2 rounded-[6px] px-2.5 py-2 text-xs font-medium outline-none',
                   entry.destructive

@@ -29,14 +29,26 @@ export interface BusinessEntityRequest {
   phone?: string;
 }
 
-/** A physical outlet of a `BusinessEntity`. */
+/** Mirrors `apps/businesses/constants.py`'s `IndianState` — 2-letter state/UT abbreviation. */
+export type IndianState = string;
+
+/**
+ * A physical outlet of a `BusinessEntity`. The address is structured (not one
+ * free-text field) — `addressLine1`/`addressLine2` are still free text, but
+ * `city`/`state`/`pincode` are their own fields so they can be validated and
+ * formatted individually instead of parsed out of one blob of text.
+ */
 export interface Location {
   id: string;
   businessId: string;
   /** Denormalized by the backend's `LocationOutputSerializer` so a location's card/row never needs a separate business lookup. */
   businessName: string;
   name: string;
-  address: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: IndianState | '';
+  pincode: string;
   phone: string;
   isActive: boolean;
   createdAt: string;
@@ -46,6 +58,27 @@ export interface Location {
 export interface LocationRequest {
   businessId: string;
   name: string;
-  address?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: IndianState | '';
+  pincode?: string;
   phone?: string;
+}
+
+/** One capped resource's usage vs. its effective limit (plan cap, or a per-tenant override if set). */
+export interface LicenseUsageResource {
+  used: number;
+  limit: number;
+}
+
+/**
+ * Mirrors `TenantLicenseUsageView`'s response — deliberately just the two
+ * resources the Businesses screen shows, not every resource a
+ * license caps (that fuller picture, `QuotaService.summary`, stays
+ * ultra_admin-only on the Platform Console).
+ */
+export interface LicenseUsage {
+  businessEntities: LicenseUsageResource;
+  locations: LicenseUsageResource;
 }

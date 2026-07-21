@@ -46,8 +46,8 @@ export function StaffCredentialModal({ credential, onAcknowledge }: StaffCredent
         <div className="flex flex-col gap-1">
           <p className="font-display text-base font-bold text-ink">Staff account ready</p>
           <p className="text-xs text-ink-soft">
-            Hand these to <span className="font-semibold">{credential?.username}</span> — they'll
-            be asked to set a real PIN the moment they log in.
+            Hand these to <span className="font-semibold">{credential?.username}</span> — a real PIN
+            is required the moment they log in.
           </p>
         </div>
         <div className="flex w-full items-center justify-center gap-6 rounded-control border border-border bg-surface px-4 py-3">

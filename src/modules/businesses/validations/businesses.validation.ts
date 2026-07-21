@@ -26,11 +26,22 @@ export const businessSchema = z.object({
 
 export type BusinessFormValues = z.infer<typeof businessSchema>;
 
+/** Mirrors `apps/businesses/validators.py`'s `validate_pincode` — 6 digits, first digit non-zero. */
+const PINCODE_REGEX = /^[1-9][0-9]{5}$/;
+
 /** Client-side mirror of `LocationInputSerializer` — `businessId` is fixed at create time (never edited). */
 export const locationSchema = z.object({
   businessId: z.string().min(1, 'Choose a business'),
   name: z.string().min(1, 'Enter a location name'),
-  address: z.string().optional().or(z.literal('')),
+  addressLine1: z.string().optional().or(z.literal('')),
+  addressLine2: z.string().optional().or(z.literal('')),
+  city: z.string().optional().or(z.literal('')),
+  state: z.string().optional().or(z.literal('')),
+  pincode: z
+    .string()
+    .optional()
+    .or(z.literal(''))
+    .refine((value) => !value || PINCODE_REGEX.test(value), 'Invalid PIN code (expected 6 digits)'),
   phone: z.string().optional().or(z.literal('')),
 });
 

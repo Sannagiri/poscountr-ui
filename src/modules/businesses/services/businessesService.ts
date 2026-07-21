@@ -4,6 +4,7 @@ import type {
   BusinessEntity,
   BusinessEntityRequest,
   EntityType,
+  LicenseUsage,
   Location,
   LocationRequest,
 } from '../types/businesses.types';
@@ -55,7 +56,11 @@ interface LocationRaw {
   business_id: string;
   business_name: string;
   name: string;
-  address: string;
+  address_line1: string;
+  address_line2: string;
+  city: string;
+  state: string;
+  pincode: string;
   phone: string;
   is_active: boolean;
   created_at: string;
@@ -67,7 +72,11 @@ function mapLocation(raw: LocationRaw): Location {
     businessId: raw.business_id,
     businessName: raw.business_name,
     name: raw.name,
-    address: raw.address,
+    addressLine1: raw.address_line1,
+    addressLine2: raw.address_line2,
+    city: raw.city,
+    state: raw.state,
+    pincode: raw.pincode,
     phone: raw.phone,
     isActive: raw.is_active,
     createdAt: raw.created_at,
@@ -79,8 +88,29 @@ function locationRequestToBody(request: Partial<LocationRequest>) {
   return {
     business_id: request.businessId,
     name: request.name,
-    address: request.address,
+    address_line1: request.addressLine1,
+    address_line2: request.addressLine2,
+    city: request.city,
+    state: request.state,
+    pincode: request.pincode,
     phone: request.phone,
+  };
+}
+
+interface LicenseUsageResourceRaw {
+  used: number;
+  limit: number;
+}
+
+interface LicenseUsageRaw {
+  business_entities: LicenseUsageResourceRaw;
+  locations: LicenseUsageResourceRaw;
+}
+
+function mapLicenseUsage(raw: LicenseUsageRaw): LicenseUsage {
+  return {
+    businessEntities: raw.business_entities,
+    locations: raw.locations,
   };
 }
 
@@ -167,5 +197,16 @@ export const businessesService = {
       apiClient.post(`/tenant/locations/${id}/activate/`),
     );
     return { location: mapLocation(data), warning: (meta.warning as string) ?? null };
+  },
+
+  /**
+   * Business entities + locations usage vs. the tenant's effective license
+   * limit — `IsTenantAdmin`-gated, narrow read of what
+   * `QuotaService.effective_limits` already computes server-side (the fuller
+   * per-resource picture stays ultra_admin-only on the Platform Console).
+   */
+  async getLicenseUsage(): Promise<LicenseUsage> {
+    const raw = await unwrap<LicenseUsageRaw>(apiClient.get('/tenant/license/usage/'));
+    return mapLicenseUsage(raw);
   },
 };

@@ -1,10 +1,12 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 
 import { ComingSoonPage } from '@/components';
 
 import { ChangePinPage, LoginPage } from '@/modules/auth';
-import { BusinessesPage } from '@/modules/businesses';
+import { KitchenPage, NewOrderPage, OrderDetailPage, OrdersPage } from '@/modules/billing';
+import { BusinessesPage, LocationsPage } from '@/modules/businesses';
 import { DashboardPage } from '@/modules/dashboard';
+import { ProductsPage } from '@/modules/inventory';
 import {
   AuditLogPage,
   LicenseTypesPage,
@@ -12,6 +14,7 @@ import {
   PlatformDashboardPage,
   TenantsPage,
 } from '@/modules/platform';
+import { TeamAdminsPage, TeamStaffPage } from '@/modules/team';
 
 import { RequireAuth } from './guards/RequireAuth';
 import { RequireRole } from './guards/RequireRole';
@@ -46,14 +49,11 @@ export const router = createBrowserRouter([
             element: <RequireRole roles={[...OWNER_ROLES]} />,
             children: [
               { path: '/dashboard', element: <DashboardPage /> },
-              {
-                path: '/inventory',
-                element: <ComingSoonPage title="Inventory" phase="F5 — Inventory" />,
-              },
-              {
-                path: '/orders',
-                element: <ComingSoonPage title="Orders & KDS" phase="F6 — Billing" />,
-              },
+              { path: '/inventory', element: <ProductsPage /> },
+              { path: '/orders', element: <OrdersPage /> },
+              { path: '/orders/new', element: <NewOrderPage /> },
+              { path: '/orders/:orderId', element: <OrderDetailPage /> },
+              { path: '/kitchen', element: <KitchenPage /> },
               {
                 path: '/reports',
                 element: <ComingSoonPage title="Reports" phase="F7 — Reports & Settings" />,
@@ -64,7 +64,12 @@ export const router = createBrowserRouter([
             element: <RequireRole roles={['tenant_admin']} />,
             children: [
               { path: '/businesses', element: <BusinessesPage /> },
-              { path: '/team', element: <ComingSoonPage title="Team" phase="F4 — Team" /> },
+              { path: '/locations', element: <LocationsPage /> },
+              // Old combined-tabs URL — redirect rather than 404 for anyone
+              // with it bookmarked (see `modules/team/README.md`).
+              { path: '/team', element: <Navigate to="/team/admins" replace /> },
+              { path: '/team/admins', element: <TeamAdminsPage /> },
+              { path: '/team/staff', element: <TeamStaffPage /> },
               {
                 path: '/settings',
                 element: <ComingSoonPage title="Settings" phase="F7 — Reports & Settings" />,

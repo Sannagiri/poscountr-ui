@@ -58,7 +58,9 @@ export const teamService = {
   },
 
   /** Gated by `max_tenant_admins` — a lenient-mode tenant at/over cap still adds the admin, with a warning in `meta`; strict mode gets a 422 `quota_exceeded` instead. */
-  async addAdmin(request: AddAdminRequest): Promise<{ member: TeamMember; warning: string | null }> {
+  async addAdmin(
+    request: AddAdminRequest,
+  ): Promise<{ member: TeamMember; warning: string | null }> {
     const { data, meta } = await unwrapWithMeta<TeamMemberRaw>(
       apiClient.post('/tenant/admins/', {
         email: request.email,

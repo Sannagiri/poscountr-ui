@@ -54,6 +54,13 @@ export interface DataTableProps<TRow> {
    * actually filter.
    */
   filtersSlot?: ReactNode;
+  /**
+   * Extra controls rendered at the right end of the toolbar strip — e.g. an
+   * "Add ___" primary action, so it sits in the same row as search/filters
+   * instead of a separate row above the table (`AdminsPanel`/`StaffPanel`'s
+   * motivating case).
+   */
+  toolbarTrailing?: ReactNode;
   /** Adds a checkbox column for bulk selection. Selection is scoped to whatever's currently rendered (post search/filter). */
   selectable?: boolean;
   /**
@@ -111,6 +118,7 @@ export function DataTable<TRow>({
   searchPlaceholder = 'Search…',
   filters,
   filtersSlot,
+  toolbarTrailing,
   selectable = false,
   bulkActions,
   rowActions,
@@ -133,7 +141,11 @@ export function DataTable<TRow>({
     [columns, leadingTrackWidth, trailingTrackWidth],
   );
 
-  const hasToolbar = Boolean(getSearchValue) || Boolean(filters?.length) || Boolean(filtersSlot);
+  const hasToolbar =
+    Boolean(getSearchValue) ||
+    Boolean(filters?.length) ||
+    Boolean(filtersSlot) ||
+    Boolean(toolbarTrailing);
   const hasActiveFilters = hasActiveListFilters(searchTerm, filterValues);
 
   const visibleRows = useMemo(() => {
@@ -220,6 +232,7 @@ export function DataTable<TRow>({
       }))}
       hasActiveFilters={hasActiveFilters}
       onClear={clearAllFilters}
+      trailing={toolbarTrailing}
     />
   ) : null;
 
@@ -452,13 +465,17 @@ function RowActionsMenu<TRow>({
   row: TRow;
   actions: DataTableRowAction<TRow>[];
 }) {
-  const items: DropdownMenuEntry[] = actions.map((action) => ({
-    label: action.label,
-    icon: action.icon,
-    destructive: action.destructive,
-    disabled: action.disabled?.(row) ?? false,
-    onSelect: () => action.onSelect(row),
-  }));
+  const items: DropdownMenuEntry[] = actions.map((action) => {
+    const disabled = action.disabled?.(row) ?? false;
+    return {
+      label: action.label,
+      icon: action.icon,
+      destructive: action.destructive,
+      disabled,
+      title: disabled ? action.disabledReason?.(row) : undefined,
+      onSelect: () => action.onSelect(row),
+    };
+  });
 
   return (
     <DropdownMenu

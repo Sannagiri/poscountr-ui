@@ -5,7 +5,7 @@ import { cn } from '@/utils/cn';
 
 import * as Dialog from '@radix-ui/react-dialog';
 
-export type ModalSize = 'sm' | 'md' | 'lg';
+export type ModalSize = 'sm' | 'md' | 'lg' | 'xl';
 
 export interface ModalProps {
   open: boolean;
@@ -29,6 +29,7 @@ const SIZE_CLASSES: Record<ModalSize, string> = {
   sm: 'max-w-sm',
   md: 'max-w-md',
   lg: 'max-w-2xl',
+  xl: 'max-w-4xl',
 };
 
 /**

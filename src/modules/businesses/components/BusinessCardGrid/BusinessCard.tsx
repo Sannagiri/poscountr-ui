@@ -12,6 +12,13 @@ export interface BusinessCardProps {
   onEdit: (business: BusinessEntity) => void;
   onManageLocations: (business: BusinessEntity) => void;
   onToggleStatus: (business: BusinessEntity) => void;
+  /**
+   * When set, an inactive card's "Activate" button stays visible but
+   * disabled with this as its hover reason — the business-entity license
+   * cap reached. Never applies to "Deactivate" (that always frees up a
+   * seat, never consumes one).
+   */
+  activationBlockedReason?: string;
 }
 
 /**
@@ -31,7 +38,10 @@ export function BusinessCard({
   onEdit,
   onManageLocations,
   onToggleStatus,
+  activationBlockedReason,
 }: BusinessCardProps) {
+  const isActivating = !business.isActive;
+  const activationBlocked = isActivating && Boolean(activationBlockedReason);
   return (
     <div className="flex flex-col gap-4 rounded-card border border-border bg-white p-5 shadow-card">
       <div className="flex flex-col items-center gap-1.5 text-center">
@@ -77,6 +87,8 @@ export function BusinessCard({
           variant="secondary"
           size="sm"
           className="flex-1"
+          disabled={activationBlocked}
+          disabledReason={activationBlocked ? activationBlockedReason : undefined}
           onClick={() => onToggleStatus(business)}
         >
           {business.isActive ? 'Deactivate' : 'Activate'}

@@ -1,0 +1,1 @@
+export { CompactLogo } from './CompactLogo';

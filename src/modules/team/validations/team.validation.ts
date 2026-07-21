@@ -28,10 +28,7 @@ export function addStaffSchema(requireLocation: boolean) {
     username: z
       .string()
       .min(1, 'Enter a username')
-      .regex(
-        STAFF_USERNAME_REGEX,
-        "3-150 characters: lowercase letters, digits, '.', '_' or '-'",
-      ),
+      .regex(STAFF_USERNAME_REGEX, "3-150 characters: lowercase letters, digits, '.', '_' or '-'"),
     firstName: z.string().optional().or(z.literal('')),
     lastName: z.string().optional().or(z.literal('')),
     locationId: requireLocation

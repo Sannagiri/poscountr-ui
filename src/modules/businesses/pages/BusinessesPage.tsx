@@ -7,12 +7,15 @@ import { applyFilterValues, filterBySearch, hasActiveListFilters } from '@/utils
 
 import { BusinessCardGrid } from '../components/BusinessCardGrid';
 import { BusinessEditModal } from '../components/BusinessEditModal';
+import { LicenseUsageCard } from '../components/LicenseUsageCard';
 import { LocationsModal } from '../components/LocationsModal';
 import { BUSINESSES_QUERY_KEYS, ENTITY_TYPE_OPTIONS } from '../constants/businesses.constants';
 import { useBusinesses } from '../hooks/useBusinesses';
+import { useLicenseUsage } from '../hooks/useLicenseUsage';
 import { useLocations } from '../hooks/useLocations';
 import { businessesService } from '../services/businessesService';
 import type { BusinessEntity } from '../types/businesses.types';
+import { limitReachedReason } from '../utils/licenseLimit';
 import type { BusinessFormValues } from '../validations/businesses.validation';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -25,7 +28,7 @@ function getBusinessSearchValue(business: BusinessEntity): string {
 }
 
 /**
- * Tenant Admin's "Businesses & Locations" screen (F3) — every business
+ * Tenant Admin's "Businesses" screen (F3) — every business
  * (operating entity) under the account, as a card grid mirroring the
  * Platform Console's Tenants/License Plans pattern (search+filter toolbar,
  * a count pill instead of a table/cards toggle, an Edit modal). Locations
@@ -40,12 +43,22 @@ function getBusinessSearchValue(business: BusinessEntity): string {
  * the page needs the full locations list anyway for each card's location
  * count, so `LocationsModal` filters that same already-fetched list by
  * `businessId` instead of the modal re-fetching per business.
+ *
+ * "New business" and each inactive card's "Activate" stay visible but
+ * disabled (with a `disabledReason` tooltip) once `useLicenseUsage` reports
+ * the business-entity cap reached — same treatment `LocationsPage` gives its
+ * own "Add location"/"Activate".
  */
 export function BusinessesPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const businessesQuery = useBusinesses();
   const locationsQuery = useLocations();
+  const licenseUsageQuery = useLicenseUsage();
+  const businessLimitReason = limitReachedReason(
+    licenseUsageQuery.data?.businessEntities,
+    'business',
+  );
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editingBusiness, setEditingBusiness] = useState<BusinessEntity | undefined>(undefined);
@@ -72,10 +85,21 @@ export function BusinessesPage() {
     },
     onSuccess: ({ warning }) => {
       queryClient.invalidateQueries({ queryKey: BUSINESSES_QUERY_KEYS.businesses });
+      // A new business counts against the business-entity license cap
+      // immediately — see the matching comment in `LocationsModal`.
+      queryClient.invalidateQueries({ queryKey: BUSINESSES_QUERY_KEYS.licenseUsage });
+      const wasEditing = Boolean(editingBusiness);
       setCreateOpen(false);
       setEditingBusiness(undefined);
       setFormError(null);
-      if (warning) showToast({ tone: 'warning', message: warning });
+      if (warning) {
+        showToast({ tone: 'warning', message: warning });
+      } else {
+        showToast({
+          tone: 'success',
+          message: wasEditing ? 'Business updated.' : 'Business created.',
+        });
+      }
     },
     onError: (error) => setFormError(describeApiError(error)),
   });
@@ -91,6 +115,9 @@ export function BusinessesPage() {
     },
     onSuccess: (warning) => {
       queryClient.invalidateQueries({ queryKey: BUSINESSES_QUERY_KEYS.businesses });
+      // Same reason as `saveMutation` above — activate/deactivate changes
+      // the active count the license cap is measured against.
+      queryClient.invalidateQueries({ queryKey: BUSINESSES_QUERY_KEYS.licenseUsage });
       setPendingToggle(null);
       if (warning) showToast({ tone: 'warning', message: warning });
     },
@@ -155,7 +182,7 @@ export function BusinessesPage() {
   return (
     <div>
       <PageHeader
-        title="Businesses & locations"
+        title="Businesses"
         subtitle="Every operating entity under your account, and their outlets"
         actions={
           <Button
@@ -163,11 +190,15 @@ export function BusinessesPage() {
               setFormError(null);
               setCreateOpen(true);
             }}
+            disabled={Boolean(businessLimitReason)}
+            disabledReason={businessLimitReason}
           >
             New business
           </Button>
         }
       />
+
+      <LicenseUsageCard />
 
       <ListToolbar
         searchValue={searchTerm}
@@ -189,6 +220,7 @@ export function BusinessesPage() {
       <BusinessCardGrid
         businesses={filteredBusinesses}
         locationCountsByBusinessId={locationCountsByBusinessId}
+        activationBlockedReason={businessLimitReason}
         isLoading={businessesQuery.isLoading}
         errorMessage={businessesQuery.isError ? describeApiError(businessesQuery.error) : null}
         onRetry={() => businessesQuery.refetch()}

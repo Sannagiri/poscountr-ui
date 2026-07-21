@@ -2,13 +2,16 @@ import type { ReactNode } from 'react';
 import {
   BarChart3,
   Boxes,
+  ChefHat,
   History,
   LayoutDashboard,
+  MapPin,
   Receipt,
   Settings,
   ShieldCheck,
   Store,
   Ticket,
+  UserCog,
   Users,
 } from 'lucide-react';
 
@@ -50,15 +53,15 @@ export const OWNER_NAV_GROUPS: NavGroup[] = [
     label: 'Business',
     items: [
       {
-        label: 'Businesses & Locations',
+        label: 'Businesses',
         path: '/businesses',
         icon: <Store size={ICON_SIZE} />,
         roles: ['tenant_admin'],
       },
       {
-        label: 'Team',
-        path: '/team',
-        icon: <Users size={ICON_SIZE} />,
+        label: 'Locations',
+        path: '/locations',
+        icon: <MapPin size={ICON_SIZE} />,
         roles: ['tenant_admin'],
       },
       {
@@ -68,10 +71,33 @@ export const OWNER_NAV_GROUPS: NavGroup[] = [
         roles: ['tenant_admin', 'manager'],
       },
       {
-        label: 'Orders & KDS',
+        label: 'Orders',
         path: '/orders',
         icon: <Receipt size={ICON_SIZE} />,
         roles: ['tenant_admin', 'manager'],
+      },
+      {
+        label: 'Kitchen',
+        path: '/kitchen',
+        icon: <ChefHat size={ICON_SIZE} />,
+        roles: ['tenant_admin', 'manager'],
+      },
+    ],
+  },
+  {
+    label: 'Administration',
+    items: [
+      {
+        label: 'Admins',
+        path: '/team/admins',
+        icon: <Users size={ICON_SIZE} />,
+        roles: ['tenant_admin'],
+      },
+      {
+        label: 'Staff',
+        path: '/team/staff',
+        icon: <UserCog size={ICON_SIZE} />,
+        roles: ['tenant_admin'],
       },
     ],
   },

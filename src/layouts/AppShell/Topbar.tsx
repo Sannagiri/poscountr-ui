@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Bell, ChevronDown, LogOut, Menu, Store, User } from 'lucide-react';
+import { Bell, LogOut, Menu, Store, User } from 'lucide-react';
 
 import { DropdownMenu } from '@/components';
 
@@ -11,9 +11,16 @@ export interface TopbarProps {
 }
 
 /**
- * Topbar: entity/business switcher for the owner app, search, notifications,
- * and the user menu (profile / change password-or-pin / logout). Matches
- * the approved dashboard mockup.
+ * Topbar: tenant-name chip for the owner app, notifications, and the user
+ * menu (profile / change password-or-pin / logout).
+ *
+ * The tenant chip is a plain, non-interactive label — it briefly was a
+ * business-switcher dropdown (listing every business, all routing to the
+ * same `/businesses` page), but nothing downstream actually reads a
+ * "current business" yet (F5/F6, which would, don't exist), so every entry
+ * did the same thing regardless of which one was picked. That's not a real
+ * switcher, just a dropdown for its own sake — removed until there's an
+ * actual business-scoped screen for it to switch between.
  */
 export function Topbar({ onMenuClick }: TopbarProps) {
   const navigate = useNavigate();
@@ -43,14 +50,10 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           <Menu size={20} />
         </button>
         {user?.role !== 'ultra_admin' && user?.tenantName ? (
-          <button
-            type="button"
-            className="flex min-w-0 items-center gap-2 rounded-control border border-border bg-surface px-3 py-1.5 text-[13px] font-semibold text-ink transition-colors hover:border-border-strong"
-          >
+          <span className="flex min-w-0 items-center gap-2 rounded-control border border-border bg-surface px-3 py-1.5 text-[13px] font-semibold text-ink">
             <Store size={15} className="shrink-0" />
             <span className="hidden truncate sm:inline">{user.tenantName}</span>
-            <ChevronDown size={14} className="shrink-0 text-ink-faint" />
-          </button>
+          </span>
         ) : null}
       </div>
 
