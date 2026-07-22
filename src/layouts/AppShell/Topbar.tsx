@@ -3,7 +3,7 @@ import { Bell, LogOut, Menu, Store, User } from 'lucide-react';
 
 import { DropdownMenu } from '@/components';
 
-import { authService, useAuthStore } from '@/modules/auth';
+import { authService, broadcastSessionCleared, useAuthStore } from '@/modules/auth';
 
 export interface TopbarProps {
   /** Opens the mobile nav drawer — only rendered below `lg` (see `AppShell`). */
@@ -32,6 +32,12 @@ export function Topbar({ onMenuClick }: TopbarProps) {
       await authService.logout();
     } finally {
       clearSession();
+      // Explicit, user-initiated logout — mirror it to any sibling tabs so
+      // they don't keep working on a now-revoked refresh token. Not done
+      // inside `clearSession()` itself, since that's also called from
+      // automatic paths (failed bootstrap, expired-session interceptor)
+      // where a sibling tab's own still-valid session shouldn't be killed.
+      broadcastSessionCleared();
       navigate('/login');
     }
   }

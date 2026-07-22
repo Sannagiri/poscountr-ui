@@ -1,8 +1,12 @@
-# reports module (scaffold only)
+# reports module
 
-Sales/GST summaries. Backend `reports` module is not built yet (see
-`POSCountr-build-context.md` §9) — flagged 🟡 in
+Sales summary (by day / location / business) and GST summary (GSTR-1-style
+HSN-wise breakdown), both computed client-side — sales from `useOrders()`
+(`@/modules/billing`), GST from real generated `Invoice` rows
+(`apps/invoicing/`, `GET /tenant/invoices/`) rather than re-deriving tax
+figures from raw order totals. There's still no dedicated backend `reports`
+module (see `POSCountr-build-context.md` §9) — this is the interim
+client-side-aggregated dashboard the roadmap flagged as an option.
+
+Built as part of **F7 — Reports & Settings**. See
 `POSCountr-UI-Planning/poscountr-ui-page-inventory.md` section D6.
-
-Scheduled for **F7 — Reports & Settings**. Route wired to `ComingSoonPage`
-until then.

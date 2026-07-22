@@ -1,7 +1,5 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 
-import { ComingSoonPage } from '@/components';
-
 import { ChangePinPage, LoginPage } from '@/modules/auth';
 import { KitchenPage, NewOrderPage, OrderDetailPage, OrdersPage } from '@/modules/billing';
 import { BusinessesPage, LocationsPage } from '@/modules/businesses';
@@ -14,6 +12,8 @@ import {
   PlatformDashboardPage,
   TenantsPage,
 } from '@/modules/platform';
+import { ReportsPage } from '@/modules/reports';
+import { SettingsPage } from '@/modules/settings';
 import { TeamAdminsPage, TeamStaffPage } from '@/modules/team';
 
 import { RequireAuth } from './guards/RequireAuth';
@@ -26,11 +26,10 @@ import { AppShell } from '@/layouts/AppShell';
 const OWNER_ROLES = ['tenant_admin', 'manager'] as const;
 
 /**
- * Every route in the app. Placeholder module pages use `ComingSoonPage`
- * with the phase they're scheduled for (see
- * POSCountr-UI-Planning/poscountr-ui-execution-roadmap.md) so the full
- * navigation is real and clickable end-to-end even before F2–F7 build
- * the screens behind it.
+ * Every route in the app. F7 — Reports & Settings is now fully built (see
+ * `modules/reports`/`modules/settings`); every other placeholder module
+ * page still uses `ComingSoonPage` with the phase it's scheduled for (see
+ * POSCountr-UI-Planning/poscountr-ui-execution-roadmap.md).
  */
 export const router = createBrowserRouter([
   {
@@ -54,10 +53,7 @@ export const router = createBrowserRouter([
               { path: '/orders/new', element: <NewOrderPage /> },
               { path: '/orders/:orderId', element: <OrderDetailPage /> },
               { path: '/kitchen', element: <KitchenPage /> },
-              {
-                path: '/reports',
-                element: <ComingSoonPage title="Reports" phase="F7 — Reports & Settings" />,
-              },
+              { path: '/reports', element: <ReportsPage /> },
             ],
           },
           {
@@ -70,10 +66,7 @@ export const router = createBrowserRouter([
               { path: '/team', element: <Navigate to="/team/admins" replace /> },
               { path: '/team/admins', element: <TeamAdminsPage /> },
               { path: '/team/staff', element: <TeamStaffPage /> },
-              {
-                path: '/settings',
-                element: <ComingSoonPage title="Settings" phase="F7 — Reports & Settings" />,
-              },
+              { path: '/settings', element: <SettingsPage /> },
             ],
           },
           {

@@ -1,4 +1,4 @@
-export { BILLING_ROUTES } from './constants/billing.constants';
+export { BILLING_ROUTES, KDS_LATE_THRESHOLD_MINUTES } from './constants/billing.constants';
 export { useKdsQueue } from './hooks/useKdsQueue';
 export { useOrder } from './hooks/useOrder';
 export { useOrders } from './hooks/useOrders';

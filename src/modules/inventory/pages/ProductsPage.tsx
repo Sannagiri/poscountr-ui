@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Ban, CheckCircle2, Pencil, Upload } from 'lucide-react';
 
 import type { DataTableColumn, DataTableFilter, DataTableRowAction } from '@/components';
@@ -70,6 +71,8 @@ function totalQuantity(product: Product): string {
 export function ProductsPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const location = useLocation();
+  const navigate = useNavigate();
   const currentUser = useAuthStore((state) => state.user);
   const isTenantAdmin = currentUser?.role === 'tenant_admin';
 
@@ -122,6 +125,22 @@ export function ProductsPage() {
     }
   }
 
+  // The dashboard's "Add product" shortcut lands here with this nav state
+  // instead of duplicating the create flow (business picker for a
+  // tenant_admin, straight to the form for everyone else) on the dashboard
+  // itself — `autoOpenHandledRef` plus clearing the state via `replace`
+  // keeps it from re-firing on a later back-navigation to this same page.
+  const autoOpenHandledRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenHandledRef.current) return;
+    const state = location.state as { autoOpenCreate?: boolean } | null;
+    if (!state?.autoOpenCreate) return;
+    autoOpenHandledRef.current = true;
+    startAddProduct();
+    navigate(location.pathname, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location, navigate]);
+
   const categoryFilterOptions = useMemo(
     () => (categoriesQuery.data ?? []).map((category) => ({ value: category, label: category })),
     [categoriesQuery.data],
@@ -159,7 +178,6 @@ export function ProductsPage() {
         key: 'sellingPrice',
         header: 'Price',
         width: '100px',
-        align: 'right',
         render: (row) => `₹${row.sellingPrice}`,
       },
       {

@@ -150,21 +150,18 @@ export function OrderDetailPage() {
         key: 'quantity',
         header: 'Qty',
         width: '70px',
-        align: 'right',
         render: (item) => formatQuantity(item.quantity),
       },
       {
         key: 'unitPrice',
         header: 'Price',
         width: '90px',
-        align: 'right',
         render: (item) => `₹${item.unitPrice}`,
       },
       {
         key: 'tax',
         header: 'Tax %',
         width: '70px',
-        align: 'right',
         render: (item) => {
           const rate = Number(item.gstRate);
           if (!rate) return '—';
@@ -175,7 +172,6 @@ export function OrderDetailPage() {
         key: 'lineTotal',
         header: 'Total',
         width: '90px',
-        align: 'right',
         render: (item) => <span className="font-semibold text-ink">₹{item.lineTotal}</span>,
       },
     ],

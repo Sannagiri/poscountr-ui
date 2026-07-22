@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import type { DataTableColumn, DataTableFilter } from '@/components';
-import { Badge, Button, Card, DataTable, PageHeader } from '@/components';
+import { Badge, Button, Card, DataTable, DatePicker, PageHeader, Select } from '@/components';
+import { dateIST } from '@/utils/date';
 import { describeApiError } from '@/utils/errors';
 import { statusLabel, toneForStatus } from '@/utils/status';
 
@@ -24,6 +25,21 @@ const ORDER_TYPE_LABELS: Record<OrderType, string> = Object.fromEntries(
   ORDER_TYPE_OPTIONS.map((option) => [option.value, option.label]),
 ) as Record<OrderType, string>;
 
+/**
+ * When it's on, `tokenDate` is compared as a plain ISO string against the
+ * two bounds (inclusive both ends) — safe because `tokenDate` is always a
+ * `YYYY-MM-DD` day, which sorts identically as a string or a real date.
+ * `null` means "every order," not "none" — that's the `all` preset.
+ */
+type DatePreset = 'today' | 'date' | 'range' | 'all';
+
+const DATE_PRESET_OPTIONS: { value: DatePreset; label: string }[] = [
+  { value: 'today', label: 'Today' },
+  { value: 'date', label: 'Specific date' },
+  { value: 'range', label: 'Date range' },
+  { value: 'all', label: 'All time' },
+];
+
 /** Search matches customer name/phone, table number, token number, and location. */
 function getOrderSearchValue(order: Order): string {
   return [
@@ -43,11 +59,44 @@ function getOrderSearchValue(order: Order): string {
  * (same scoping shape `ProductsPage` already established for products). No
  * server-side status/type/location filter is wired here since the whole
  * list is small enough to fetch once and narrow client-side via `DataTable`'s
- * built-in filters, exactly like `ProductsPage` does.
+ * built-in filters, exactly like `ProductsPage` does. The date filter below
+ * follows the same client-side pattern, keyed off `tokenDate` — the same
+ * IST day-boundary field the backend stamps at order-creation time (see
+ * `DashboardPage`'s `dateIST()` usage for the same convention) — rather
+ * than `createdAt`, so "today" always means the same day the backend meant
+ * when it assigned the order its daily token number. Defaults to "today,"
+ * per the same convention as the dashboard, rather than showing every order
+ * ever placed.
  */
 export function OrdersPage() {
   const navigate = useNavigate();
   const ordersQuery = useOrders();
+
+  const [datePreset, setDatePreset] = useState<DatePreset>('today');
+  const [specificDate, setSpecificDate] = useState(() => dateIST());
+  const [rangeFrom, setRangeFrom] = useState(() => dateIST());
+  const [rangeTo, setRangeTo] = useState(() => dateIST());
+
+  const dateBounds = useMemo(() => {
+    if (datePreset === 'today') {
+      const today = dateIST();
+      return { from: today, to: today };
+    }
+    if (datePreset === 'date') return { from: specificDate, to: specificDate };
+    if (datePreset === 'range') return { from: rangeFrom, to: rangeTo };
+    return null;
+  }, [datePreset, specificDate, rangeFrom, rangeTo]);
+
+  const dateFilteredOrders = useMemo(() => {
+    const orders = ordersQuery.data ?? [];
+    if (!dateBounds) return orders;
+    return orders.filter(
+      (order) =>
+        order.tokenDate !== null &&
+        order.tokenDate >= dateBounds.from &&
+        order.tokenDate <= dateBounds.to,
+    );
+  }, [ordersQuery.data, dateBounds]);
 
   const locationFilterOptions = useMemo(() => {
     const seen = new Map<string, string>();
@@ -91,7 +140,6 @@ export function OrdersPage() {
         key: 'total',
         header: 'Total',
         width: '100px',
-        align: 'right',
         render: (row) => `₹${row.total}`,
       },
       {
@@ -124,7 +172,7 @@ export function OrdersPage() {
       <Card>
         <DataTable
           columns={columns}
-          data={ordersQuery.data ?? []}
+          data={dateFilteredOrders}
           getRowKey={(row) => row.id}
           isLoading={ordersQuery.isLoading}
           errorMessage={ordersQuery.isError ? describeApiError(ordersQuery.error) : null}
@@ -136,7 +184,39 @@ export function OrdersPage() {
           filters={filters}
           onRowClick={(row) => navigate(BILLING_ROUTES.orderDetail(row.id))}
           toolbarTrailing={
-            <Button onClick={() => navigate(BILLING_ROUTES.newOrder)}>New order</Button>
+            <>
+              <Select
+                className="w-auto min-w-[9.5rem]"
+                value={datePreset}
+                onChange={(value) => setDatePreset(value as DatePreset)}
+                options={DATE_PRESET_OPTIONS}
+              />
+              {datePreset === 'date' ? (
+                <DatePicker
+                  value={specificDate}
+                  onChange={setSpecificDate}
+                  className="w-auto min-w-[9.5rem]"
+                />
+              ) : null}
+              {datePreset === 'range' ? (
+                <>
+                  <DatePicker
+                    value={rangeFrom}
+                    onChange={setRangeFrom}
+                    placeholder="From"
+                    className="w-auto min-w-[9.5rem]"
+                  />
+                  <span className="text-xs text-ink-faint">to</span>
+                  <DatePicker
+                    value={rangeTo}
+                    onChange={setRangeTo}
+                    placeholder="To"
+                    className="w-auto min-w-[9.5rem]"
+                  />
+                </>
+              ) : null}
+              <Button onClick={() => navigate(BILLING_ROUTES.newOrder)}>New order</Button>
+            </>
           }
         />
       </Card>
