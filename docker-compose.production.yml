@@ -1,3 +1,11 @@
+# ---------------------------------------------------------------------------
+# Production stack — one deployment per tenant, same image, driven by a
+# per-tenant .env (COMPOSE_PROJECT_NAME, WEB_PORT, TENANT_SLUG, VITE_*).
+# The published port is bound to 127.0.0.1 only: the container must never be
+# reachable directly from the public internet, only via the host's Nginx,
+# which itself sits behind Cloudflare. See CommCorner-Production-
+# Infrastructure-Master-Documentation.md §11 for why this matters.
+# ---------------------------------------------------------------------------
 services:
   web:
     build:
@@ -6,7 +14,7 @@ services:
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://api.poscountr.com/api/v1}
         VITE_APP_STAGE: production
-    image: poscountr-ui:latest
+    image: poscountr-ui-${TENANT_SLUG:-app}:latest
     ports:
-      - '8080:80'
+      - '127.0.0.1:${WEB_PORT:-8080}:80'
     restart: unless-stopped
