@@ -5,6 +5,7 @@ import { statusLabel, toneForStatus } from '@/utils/status';
 
 import { useTenantAdmins } from '../../hooks/useTenantAdmins';
 import type { Tenant } from '../../types/platform.types';
+import { lifecycleButtonLabel } from '../../utils/tenantLifecycle';
 
 export interface TenantCardProps {
   tenant: Tenant;
@@ -81,7 +82,7 @@ export function TenantCard({ tenant, onEdit, onManageAdmins, onToggleStatus }: T
           className="flex-1"
           onClick={() => onToggleStatus(tenant)}
         >
-          {tenant.status === 'suspended' ? 'Activate' : 'Suspend'}
+          {lifecycleButtonLabel(tenant.status)}
         </Button>
         <Button size="sm" className="flex-1" onClick={() => onEdit(tenant)}>
           Edit

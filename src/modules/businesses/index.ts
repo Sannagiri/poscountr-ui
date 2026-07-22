@@ -1,4 +1,5 @@
 export { ChooseBusinessModal } from './components/ChooseBusinessModal';
+export { EntityTypePicker } from './components/EntityTypePicker';
 export {
   BUSINESSES_ROUTES,
   ENTITY_TYPE_OPTIONS,

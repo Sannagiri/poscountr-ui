@@ -22,6 +22,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 type PendingToggle = { business: BusinessEntity; kind: 'deactivate' | 'activate' } | null;
 
+// Opens on Active-only, same as every other status-filtered table — an
+// inactive business is a deliberate filter change away, not mixed in by
+// default.
+const DEFAULT_FILTER_VALUES: Record<string, string> = { isActive: 'true' };
+
 /** Search matches business name, GSTIN, and phone. */
 function getBusinessSearchValue(business: BusinessEntity): string {
   return [business.name, business.gstin, business.phone].filter(Boolean).join(' ');
@@ -66,7 +71,7 @@ export function BusinessesPage() {
   const [locationsModalBusiness, setLocationsModalBusiness] = useState<BusinessEntity | null>(null);
   const [pendingToggle, setPendingToggle] = useState<PendingToggle>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(DEFAULT_FILTER_VALUES);
 
   const saveMutation = useMutation({
     mutationFn: async (values: BusinessFormValues): Promise<{ warning: string | null }> => {
@@ -156,11 +161,11 @@ export function BusinessesPage() {
     return applyFilterValues(searched, filterDefinitions, filterValues);
   }, [totalBusinesses, searchTerm, filterDefinitions, filterValues]);
 
-  const hasActiveFilters = hasActiveListFilters(searchTerm, filterValues);
+  const hasActiveFilters = hasActiveListFilters(searchTerm, filterValues, DEFAULT_FILTER_VALUES);
 
   function clearAllFilters() {
     setSearchTerm('');
-    setFilterValues({});
+    setFilterValues(DEFAULT_FILTER_VALUES);
   }
 
   const toolbarFilters: ListToolbarFilter[] = filterDefinitions.map((filter) => ({

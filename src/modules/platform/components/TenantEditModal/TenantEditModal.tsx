@@ -20,6 +20,7 @@ import { PLATFORM_QUERY_KEYS } from '../../constants/platform.constants';
 import { useLicenseTypes } from '../../hooks/useLicenseTypes';
 import { useTenant } from '../../hooks/useTenant';
 import { platformService } from '../../services/platformService';
+import { lifecycleConfirmCopy, nextLifecycleAction } from '../../utils/tenantLifecycle';
 import type { UpdateTenantFormValues } from '../../validations/platform.validation';
 import { updateTenantSchema } from '../../validations/platform.validation';
 import { TenantAdminsModal } from '../TenantAdminsModal';
@@ -121,6 +122,9 @@ export function TenantEditModal({ tenantId, onOpenChange }: TenantEditModalProps
 
   const tenant = tenantQuery.data;
 
+  const lifecycleCopy =
+    tenant && pendingLifecycle ? lifecycleConfirmCopy(tenant, pendingLifecycle) : null;
+
   function renderBody() {
     if (tenantQuery.isLoading) {
       return <Loader label="Loading business…" />;
@@ -143,11 +147,9 @@ export function TenantEditModal({ tenantId, onOpenChange }: TenantEditModalProps
           <Button
             variant="secondary"
             size="sm"
-            onClick={() =>
-              setPendingLifecycle(tenant.status === 'suspended' ? 'activate' : 'suspend')
-            }
+            onClick={() => setPendingLifecycle(nextLifecycleAction(tenant.status))}
           >
-            {tenant.status === 'suspended' ? 'Activate' : 'Suspend'}
+            {nextLifecycleAction(tenant.status) === 'suspend' ? 'Suspend' : 'Activate'}
           </Button>
         </div>
 
@@ -293,18 +295,10 @@ export function TenantEditModal({ tenantId, onOpenChange }: TenantEditModalProps
 
       <ConfirmDialog
         open={pendingLifecycle !== null}
-        title={
-          pendingLifecycle === 'suspend' ? 'Suspend this business?' : 'Activate this business?'
-        }
-        description={
-          tenant && pendingLifecycle === 'suspend'
-            ? `${tenant.name}'s staff and owner will be unable to log in until it's reactivated.`
-            : tenant
-              ? `${tenant.name} will regain access immediately.`
-              : undefined
-        }
-        confirmText={pendingLifecycle === 'suspend' ? 'Suspend' : 'Activate'}
-        isDestructive={pendingLifecycle === 'suspend'}
+        title={lifecycleCopy?.title ?? 'Update this business?'}
+        description={lifecycleCopy?.description}
+        confirmText={lifecycleCopy?.confirmText}
+        isDestructive={lifecycleCopy?.isDestructive ?? false}
         isLoading={lifecycleMutation.isPending}
         onConfirm={() => pendingLifecycle && lifecycleMutation.mutate(pendingLifecycle)}
         onCancel={() => setPendingLifecycle(null)}

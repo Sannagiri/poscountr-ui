@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Bell, LogOut, Menu, Store, User } from 'lucide-react';
+import { Bell, LogOut, Menu, Settings, Store, User } from 'lucide-react';
 
 import { DropdownMenu } from '@/components';
 
@@ -87,7 +87,8 @@ export function Topbar({ onMenuClick }: TopbarProps) {
             </button>
           }
           items={[
-            { label: 'Profile', icon: User, onSelect: () => navigate('/settings') },
+            { label: 'My Profile', icon: User, onSelect: () => navigate('/profile') },
+            { label: 'Settings', icon: Settings, onSelect: () => navigate('/settings') },
             '-',
             { label: 'Log out', icon: LogOut, destructive: true, onSelect: handleLogout },
           ]}

@@ -57,3 +57,19 @@ export interface AddStaffRequest {
 export interface AssignLocationRequest {
   locationId: string;
 }
+
+/**
+ * `UpdateStaffInputSerializer` — editing an existing manager/kitchen_staff's
+ * role, username, name, and (optionally) location in one call. `locationId`
+ * follows the same staff-location rule as `AddStaffRequest` (required only
+ * with 2+ active locations); omitted entirely leaves the current location
+ * untouched rather than clearing it — there's no "unassign" affordance
+ * anywhere else in the app, so Edit doesn't introduce one either.
+ */
+export interface UpdateStaffRequest {
+  role: StaffRole;
+  username: string;
+  firstName?: string;
+  lastName?: string;
+  locationId?: string;
+}

@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 
 /**
  * One business's invoice numbering/branding config. Disabled until a
- * business is actually selected (`SettingsPage` defaults to the tenant's
+ * business is actually selected (`InvoiceSettingsPage` defaults to the tenant's
  * first business once `useBusinesses` resolves) — there's no "all
  * businesses" invoice-settings read, one row per business is the whole
  * point (docs on `InvoiceSettings` model).

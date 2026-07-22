@@ -16,6 +16,20 @@
   ::selection {
     @apply bg-brand/20;
   }
+
+  /*
+   * Edge (and legacy IE) draw their own built-in reveal-password "eye" and
+   * clear-field "x" inside every `type="password"` field automatically —
+   * with no way to opt out via an HTML attribute, only this CSS pseudo-
+   * element. Left alone, it sits right on top of `PasswordInput`'s own eye
+   * toggle (two reveal icons stacked on the same field). Scoped to
+   * `[type="password"]` only, so a plain text/search input's native clear
+   * button elsewhere in the app is untouched.
+   */
+  input[type='password']::-ms-reveal,
+  input[type='password']::-ms-clear {
+    display: none;
+  }
 }
 
 @layer utilities {

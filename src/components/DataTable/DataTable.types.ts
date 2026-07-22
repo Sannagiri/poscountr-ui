@@ -58,4 +58,12 @@ export interface DataTableFilter<TRow> {
   options: DataTableFilterOption[];
   /** Defaults to reading `String(row[key])`. */
   getValue?: (row: TRow) => string;
+  /**
+   * The value this filter starts on (and returns to on "Clear") instead of
+   * "All ___" — e.g. a Status filter defaulting to `'true'`/`'active'` so a
+   * list opens showing only active rows, with inactive ones a deliberate
+   * choice away rather than mixed in by default. Omit to keep the old
+   * "All ___" starting point.
+   */
+  defaultValue?: string;
 }

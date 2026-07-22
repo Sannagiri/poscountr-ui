@@ -6,6 +6,7 @@ import type {
   AssignLocationRequest,
   TeamMember,
   TeamRole,
+  UpdateStaffRequest,
 } from '../types/team.types';
 
 /**
@@ -117,6 +118,29 @@ export const teamService = {
       defaultPin: meta.default_pin as string,
       warning: (meta.warning as string) ?? null,
     };
+  },
+
+  /**
+   * Edit an existing staff member's role, username, name, and (optionally)
+   * location in one call. Omitting `locationId` leaves the current location
+   * untouched (see `UpdateStaffRequest`'s doc comment); the backend only
+   * re-checks the license cap when `role` actually changes for an active
+   * staff member, so `warning` is usually `null`.
+   */
+  async updateStaff(
+    id: string,
+    request: UpdateStaffRequest,
+  ): Promise<{ member: TeamMember; warning: string | null }> {
+    const { data, meta } = await unwrapWithMeta<TeamMemberRaw>(
+      apiClient.post(`/tenant/staff/${id}/edit/`, {
+        role: request.role,
+        username: request.username,
+        first_name: request.firstName || undefined,
+        last_name: request.lastName || undefined,
+        location_id: request.locationId || undefined,
+      }),
+    );
+    return { member: mapTeamMember(data), warning: (meta.warning as string) ?? null };
   },
 
   /** Resets to the same default PIN and forces a change again — same `StaffCredentialModal` reveal as a fresh add. */

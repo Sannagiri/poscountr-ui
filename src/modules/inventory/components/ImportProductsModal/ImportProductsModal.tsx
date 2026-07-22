@@ -2,12 +2,12 @@ import type { DragEvent } from 'react';
 import { useRef, useState } from 'react';
 import { Download, FileSpreadsheet } from 'lucide-react';
 
-import { Badge, Button, ErrorMessage, Modal, Select } from '@/components';
+import { Badge, Button, ErrorMessage, Modal } from '@/components';
 import { cn } from '@/utils/cn';
 import { describeApiError } from '@/utils/errors';
 
 import type { EntityType } from '@/modules/businesses';
-import { ENTITY_TYPE_OPTIONS } from '@/modules/businesses';
+import { EntityTypePicker } from '@/modules/businesses';
 
 import { INVENTORY_QUERY_KEYS } from '../../constants/inventory.constants';
 import { inventoryService } from '../../services/inventoryService';
@@ -41,6 +41,13 @@ export interface ImportProductsModalProps {
  * a drag-and-drop zone (falls back to click-to-browse) rather than a plain
  * button, since dropping a file straight from Finder/Explorer is the
  * faster path for the `.xlsx` this step always wants.
+ *
+ * Step 1's business type uses the same `EntityTypePicker` icon grid as the
+ * business create/edit forms, not a plain text `Select` — this panel is
+ * short, and a floating select popover opening below the trigger had
+ * nowhere to go but over the "2. Upload" panel underneath it, which read as
+ * a layout bug rather than a dropdown. The icon grid lays out inline, so
+ * there's nothing to float over anything.
  */
 export function ImportProductsModal({ open, businessId, onOpenChange }: ImportProductsModalProps) {
   const queryClient = useQueryClient();
@@ -149,27 +156,26 @@ export function ImportProductsModal({ open, businessId, onOpenChange }: ImportPr
               </span>
               <span className="text-sm font-semibold text-ink">Get a template</span>
             </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <Select
-                label="Business type"
-                options={ENTITY_TYPE_OPTIONS}
-                value={entityType}
-                onChange={(value) => setEntityType(value as EntityType)}
-                className="sm:max-w-[240px]"
-              />
+            <EntityTypePicker
+              label="Business type"
+              value={entityType}
+              onChange={(value) => setEntityType(value as EntityType)}
+            />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-ink-faint">
+                Picks which columns the template has — e.g. batch/expiry for pharmacy
+              </p>
               <Button
                 type="button"
                 variant="outline"
                 leadingIcon={<Download size={14} />}
                 isLoading={templateMutation.isPending}
                 onClick={() => templateMutation.mutate()}
+                className="self-start sm:shrink-0"
               >
                 Template
               </Button>
             </div>
-            <p className="text-xs text-ink-faint">
-              Picks which columns the template has — e.g. batch/expiry for pharmacy
-            </p>
           </div>
 
           <div className="flex flex-col gap-3 rounded-control border border-border p-4">

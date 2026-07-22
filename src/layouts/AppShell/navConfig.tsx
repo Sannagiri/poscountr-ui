@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Store,
   Ticket,
+  UserCircle,
   UserCog,
   Users,
 } from 'lucide-react';
@@ -22,6 +23,14 @@ export interface NavItem {
   path: string;
   icon: ReactNode;
   roles: UserRole[];
+  /**
+   * Nested sub-items — when present, `Sidebar` renders this item as a
+   * collapsible accordion group instead of a direct link (`path` is then
+   * only used to decide the group's own active/expanded state, it isn't
+   * navigated to directly). Keep one level deep; that's all the "Settings ->
+   * Invoices, (more later)" structure needs.
+   */
+  children?: NavItem[];
 }
 
 export interface NavGroup {
@@ -110,11 +119,38 @@ export const OWNER_NAV_GROUPS: NavGroup[] = [
         icon: <BarChart3 size={ICON_SIZE} />,
         roles: ['tenant_admin', 'manager'],
       },
+    ],
+  },
+  {
+    label: 'Account',
+    items: [
+      {
+        label: 'My Profile',
+        path: '/profile',
+        icon: <UserCircle size={ICON_SIZE} />,
+        roles: ['tenant_admin'],
+      },
       {
         label: 'Settings',
+        // The group itself has no screen of its own — `Sidebar` only uses
+        // this to decide whether the accordion should start expanded
+        // (any child path active). Navigating here directly isn't wired up;
+        // `/settings` redirects to the first child instead (see
+        // `routes/router.tsx`), same "old combined URL" pattern as `/team`.
         path: '/settings',
         icon: <Settings size={ICON_SIZE} />,
         roles: ['tenant_admin'],
+        children: [
+          {
+            label: 'Invoices',
+            path: '/settings/invoices',
+            icon: <Receipt size={ICON_SIZE} />,
+            roles: ['tenant_admin'],
+          },
+          // More sections (e.g. Tax, Notifications, Integrations) land here
+          // over time — each just another entry in this array, no other
+          // wiring needed (`Sidebar` renders however many children exist).
+        ],
       },
     ],
   },
@@ -158,9 +194,15 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+function filterItems(items: NavItem[], role: UserRole): NavItem[] {
+  return items
+    .filter((item) => item.roles.includes(role))
+    .map((item) => (item.children ? { ...item, children: filterItems(item.children, role) } : item));
+}
+
 export function navGroupsForRole(role: UserRole): NavGroup[] {
   const groups = role === 'ultra_admin' ? PLATFORM_NAV_GROUPS : OWNER_NAV_GROUPS;
   return groups
-    .map((group) => ({ ...group, items: group.items.filter((item) => item.roles.includes(role)) }))
+    .map((group) => ({ ...group, items: filterItems(group.items, role) }))
     .filter((group) => group.items.length > 0);
 }

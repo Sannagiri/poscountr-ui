@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import { Info } from 'lucide-react';
 
-import { Button, Card, Input } from '@/components';
+import { Button, Card, Input, PasswordInput } from '@/components';
 import { describeApiError } from '@/utils/errors';
 
 import { CompactLogo } from '../components/CompactLogo';
@@ -249,11 +249,11 @@ export function LoginPage() {
                     </>
                   ) : (
                     <form onSubmit={handlePasswordSubmit(onPasswordSubmit)}>
-                      <Input
-                        type="password"
+                      <PasswordInput
                         label="Password"
                         placeholder="••••••••"
-                        className="h-10 text-[15px]"
+                        className="text-[15px]"
+                        autoComplete="current-password"
                         {...registerPassword('password')}
                         errorMessage={passwordErrors.password?.message ?? formError ?? undefined}
                       />

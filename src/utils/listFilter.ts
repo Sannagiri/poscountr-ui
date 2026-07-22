@@ -44,9 +44,20 @@ export function applyFilterValues<TRow>(
 export function hasActiveListFilters(
   searchTerm: string,
   filterValues: Record<string, string>,
+  /**
+   * A filter sitting on its own `defaultValue` (e.g. a Status filter
+   * defaulting to "Active") isn't a filter the person actively applied —
+   * only a value that differs from *this* filter's baseline (its
+   * `defaultValue`, or "All ___" when it has none) counts. Omit for the old
+   * all-filters-baseline-at-"all" behavior.
+   */
+  defaultFilterValues: Record<string, string> = {},
 ): boolean {
   return (
     Boolean(searchTerm.trim()) ||
-    Object.values(filterValues).some((value) => value && value !== ALL_FILTER_VALUE)
+    Object.entries(filterValues).some(([key, value]) => {
+      const baseline = defaultFilterValues[key] ?? ALL_FILTER_VALUE;
+      return Boolean(value) && value !== baseline;
+    })
   );
 }

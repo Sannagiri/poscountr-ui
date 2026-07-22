@@ -10,8 +10,13 @@ export const addAdminSchema = z.object({
 
 export type AddAdminFormValues = z.infer<typeof addAdminSchema>;
 
-/** Mirrors `apps/accounts/validators.py`'s `validate_staff_username` exactly. */
-const STAFF_USERNAME_REGEX = /^[a-z0-9][a-z0-9._-]{2,149}$/;
+/**
+ * Mirrors `apps/accounts/validators.py`'s `validate_staff_username` exactly.
+ * Exported so the live "is this username taken" check
+ * (`useStaffUsernameAvailability`) only treats a syntactically-valid
+ * username as checkable, instead of duplicating this pattern a second time.
+ */
+export const STAFF_USERNAME_REGEX = /^[a-z0-9][a-z0-9._-]{2,149}$/;
 
 /**
  * Client-side mirror of `AddStaffInputSerializer`. `locationId` is optional
@@ -38,6 +43,29 @@ export function addStaffSchema(requireLocation: boolean) {
 }
 
 export type AddStaffFormValues = z.infer<ReturnType<typeof addStaffSchema>>;
+
+/**
+ * Client-side mirror of `UpdateStaffInputSerializer` — same shape (and same
+ * "required only with 2+ active locations" caveat) as `addStaffSchema`,
+ * just for editing a staff member that already exists rather than creating
+ * one.
+ */
+export function updateStaffSchema(requireLocation: boolean) {
+  return z.object({
+    role: z.enum(['manager', 'kitchen_staff']),
+    username: z
+      .string()
+      .min(1, 'Enter a username')
+      .regex(STAFF_USERNAME_REGEX, "3-150 characters: lowercase letters, digits, '.', '_' or '-'"),
+    firstName: z.string().optional().or(z.literal('')),
+    lastName: z.string().optional().or(z.literal('')),
+    locationId: requireLocation
+      ? z.string().min(1, 'Choose a location — this tenant has more than one')
+      : z.string().optional().or(z.literal('')),
+  });
+}
+
+export type UpdateStaffFormValues = z.infer<ReturnType<typeof updateStaffSchema>>;
 
 export const assignLocationSchema = z.object({
   locationId: z.string().min(1, 'Choose a location'),

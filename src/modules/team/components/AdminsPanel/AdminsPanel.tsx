@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Ban, CheckCircle2 } from 'lucide-react';
 
-import type { DataTableColumn, DataTableRowAction } from '@/components';
+import type { DataTableColumn, DataTableFilter, DataTableRowAction } from '@/components';
 import {
   Badge,
   Button,
@@ -26,6 +26,11 @@ import { AddAdminModal } from '../AddAdminModal';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 type PendingToggle = { member: TeamMember; kind: 'deactivate' | 'activate' } | null;
+
+const STATUS_FILTER_OPTIONS = [
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+];
 
 /** Search matches name and email. */
 function getAdminSearchValue(member: TeamMember): string {
@@ -133,6 +138,22 @@ export function AdminsPanel() {
     [],
   );
 
+  const filters: DataTableFilter<TeamMember>[] = useMemo(
+    () => [
+      {
+        key: 'isActive',
+        label: 'Status',
+        options: STATUS_FILTER_OPTIONS,
+        getValue: (row) => (row.isActive ? 'active' : 'inactive'),
+        // Same "opens on Active-only" default as `StaffPanel` — a
+        // deactivated admin is a deliberate filter change away, not mixed
+        // into the everyday list.
+        defaultValue: 'active',
+      },
+    ],
+    [],
+  );
+
   const rowActions: DataTableRowAction<TeamMember>[] = useMemo(
     () => [
       {
@@ -170,6 +191,7 @@ export function AdminsPanel() {
           emptyDescription="Add another tenant_admin to share access to this account."
           getSearchValue={getAdminSearchValue}
           searchPlaceholder="Search admins…"
+          filters={filters}
           toolbarTrailing={
             <Button
               onClick={() => {

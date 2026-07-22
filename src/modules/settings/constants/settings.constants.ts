@@ -2,7 +2,7 @@ import type { ResourceKey } from '../types/settings.types';
 
 /** Route paths owned by the settings module — imported by the router, never hardcoded at call sites. */
 export const SETTINGS_ROUTES = {
-  settings: '/settings',
+  invoices: '/settings/invoices',
 } as const;
 
 /** TanStack Query cache keys for this module. */

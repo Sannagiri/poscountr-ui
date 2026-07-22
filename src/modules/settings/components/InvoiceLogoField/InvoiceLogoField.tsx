@@ -20,14 +20,20 @@ export interface InvoiceLogoFieldProps {
 }
 
 /**
- * Icon-only logo control for a business's invoice branding — same
- * dashed-square-becomes-upload-button / edit+remove badge pattern as
+ * Logo control for a business's invoice branding — same
+ * dashed-box-becomes-upload-button / edit+remove badge pattern as
  * inventory's `ProductImageField`, just pointed at
  * `/tenant/businesses/{id}/invoice-settings/logo/` instead of a product's
  * image endpoint. Mirrors the backend's own ≤5MB JPEG/PNG/WebP limit
  * (`apps/storage/constants.py`'s `MAX_PRODUCT_IMAGE_SIZE_BYTES`, reused for
  * logos too) client-side for instant feedback, not to replace the server's
  * own check.
+ *
+ * Unlike `ProductImageField`'s square thumbnail, this preview is a wide
+ * (2:1) box with `object-contain` rather than `object-cover` — invoice logos
+ * are typically a wordmark/lockup (wider than tall), and `object-cover` in a
+ * square box was cropping most of the logo off the sides instead of
+ * showing it in full.
  */
 export function InvoiceLogoField({ businessId, logoUrl }: InvoiceLogoFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -78,13 +84,13 @@ export function InvoiceLogoField({ businessId, logoUrl }: InvoiceLogoFieldProps)
   return (
     <div className="flex flex-col gap-2">
       <div className="text-xs font-semibold text-ink-soft">Invoice logo</div>
-      <div className="relative inline-flex h-16 w-16 shrink-0">
+      <div className="relative inline-flex h-16 w-32 shrink-0">
         {logoUrl ? (
           <>
             <img
               src={logoUrl}
               alt="Invoice logo"
-              className="h-16 w-16 rounded-control border border-border object-cover"
+              className="h-16 w-32 rounded-control border border-border bg-white object-contain p-1.5"
             />
             <button
               type="button"
@@ -120,7 +126,7 @@ export function InvoiceLogoField({ businessId, logoUrl }: InvoiceLogoFieldProps)
             disabled={isBusy}
             onClick={() => inputRef.current?.click()}
             className={cn(
-              'flex h-16 w-16 items-center justify-center rounded-control border border-dashed border-border text-ink-faint transition-colors',
+              'flex h-16 w-32 items-center justify-center rounded-control border border-dashed border-border text-ink-faint transition-colors',
               'hover:border-border-strong hover:text-ink-soft disabled:opacity-50',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
             )}

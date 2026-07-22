@@ -17,6 +17,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 type PendingToggle = { licenseType: LicenseType; kind: 'deactivate' | 'reactivate' } | null;
 
+// Opens on Active-only, same as every other status-filtered table.
+const DEFAULT_FILTER_VALUES: Record<string, string> = { isActive: 'true' };
+
 /** Search matches plan name, code, and description. */
 function getLicenseTypeSearchValue(licenseType: LicenseType): string {
   return [licenseType.name, licenseType.code, licenseType.description].filter(Boolean).join(' ');
@@ -61,7 +64,7 @@ export function LicenseTypesPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [pendingToggle, setPendingToggle] = useState<PendingToggle>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(DEFAULT_FILTER_VALUES);
 
   const saveMutation = useMutation({
     mutationFn: (values: LicenseTypeFormValues) =>
@@ -114,11 +117,11 @@ export function LicenseTypesPage() {
     return applyFilterValues(searched, filterDefinitions, filterValues);
   }, [totalLicenseTypes, searchTerm, filterDefinitions, filterValues]);
 
-  const hasActiveFilters = hasActiveListFilters(searchTerm, filterValues);
+  const hasActiveFilters = hasActiveListFilters(searchTerm, filterValues, DEFAULT_FILTER_VALUES);
 
   function clearAllFilters() {
     setSearchTerm('');
-    setFilterValues({});
+    setFilterValues(DEFAULT_FILTER_VALUES);
   }
 
   const toolbarFilters: ListToolbarFilter[] = filterDefinitions.map((filter) => ({

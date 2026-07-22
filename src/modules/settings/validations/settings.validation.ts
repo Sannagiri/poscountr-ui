@@ -2,19 +2,10 @@ import { z } from 'zod';
 
 import { PIN_LENGTH } from '@/modules/auth';
 
-/** Mirrors the backend's `ChangePasswordInputSerializer.new_password` (`min_length=8`) — see `apps/accounts/serializers/input.py`. */
-export const changePasswordFormSchema = z
-  .object({
-    currentPassword: z.string().min(1, 'Enter your current password'),
-    newPassword: z.string().min(8, 'Password must be at least 8 characters'),
-    confirmPassword: z.string().min(1, 'Confirm your new password'),
-  })
-  .refine((values) => values.newPassword === values.confirmPassword, {
-    message: 'Passwords do not match',
-    path: ['confirmPassword'],
-  });
-
-export type ChangePasswordFormValues = z.infer<typeof changePasswordFormSchema>;
+// `changePasswordFormSchema`/`ChangePasswordFormValues` moved to
+// `modules/profile/validations/profile.validation.ts` — password change is
+// now part of the tenant_admin's own account screen ("My Profile"), not
+// this module's per-business invoice configuration.
 
 function isAllSameDigit(value: string): boolean {
   return value.split('').every((digit) => digit === value[0]);

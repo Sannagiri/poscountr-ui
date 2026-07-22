@@ -126,7 +126,21 @@ export function DataTable<TRow>({
   minBodyHeight = 240,
 }: DataTableProps<TRow>) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+  // A filter with its own `defaultValue` (e.g. Status → "Active") starts
+  // there instead of "All ___" — see `DataTableFilter.defaultValue`'s doc
+  // comment. Recomputed from `filters` rather than frozen at mount so a
+  // page that builds its `filters` array conditionally still gets the
+  // right starting point whenever that array's shape changes.
+  const defaultFilterValues = useMemo(
+    () =>
+      Object.fromEntries(
+        (filters ?? [])
+          .filter((filter) => filter.defaultValue)
+          .map((filter) => [filter.key, filter.defaultValue as string]),
+      ),
+    [filters],
+  );
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(defaultFilterValues);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const bodyHeight = useFillRemainingHeight(scrollContainerRef, { minHeight: minBodyHeight });
@@ -146,7 +160,7 @@ export function DataTable<TRow>({
     Boolean(filters?.length) ||
     Boolean(filtersSlot) ||
     Boolean(toolbarTrailing);
-  const hasActiveFilters = hasActiveListFilters(searchTerm, filterValues);
+  const hasActiveFilters = hasActiveListFilters(searchTerm, filterValues, defaultFilterValues);
 
   const visibleRows = useMemo(() => {
     const searched = filterBySearch(data, searchTerm, getSearchValue);
@@ -207,7 +221,7 @@ export function DataTable<TRow>({
 
   function clearAllFilters() {
     setSearchTerm('');
-    setFilterValues({});
+    setFilterValues(defaultFilterValues);
   }
 
   function handleSortClick(column: DataTableColumn<TRow>) {

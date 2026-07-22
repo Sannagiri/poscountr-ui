@@ -12,8 +12,9 @@ import {
   PlatformDashboardPage,
   TenantsPage,
 } from '@/modules/platform';
+import { ProfilePage } from '@/modules/profile';
 import { ReportsPage } from '@/modules/reports';
-import { SettingsPage } from '@/modules/settings';
+import { InvoiceSettingsPage } from '@/modules/settings';
 import { TeamAdminsPage, TeamStaffPage } from '@/modules/team';
 
 import { RequireAuth } from './guards/RequireAuth';
@@ -30,6 +31,13 @@ const OWNER_ROLES = ['tenant_admin', 'manager'] as const;
  * `modules/reports`/`modules/settings`); every other placeholder module
  * page still uses `ComingSoonPage` with the phase it's scheduled for (see
  * POSCountr-UI-Planning/poscountr-ui-execution-roadmap.md).
+ *
+ * The old combined `/settings` screen (own account + per-business invoice
+ * config on one page) was split in two: `/profile` ("My Profile" — identity,
+ * password, plan & usage; `modules/profile`) and `/settings/invoices`
+ * ("Settings" > "Invoices" in the sidebar; `modules/settings`), matching the
+ * sidebar's own expandable "Settings" group (see `layouts/AppShell/
+ * navConfig.tsx`) — more settings sections join as sibling routes here.
  */
 export const router = createBrowserRouter([
   {
@@ -66,7 +74,12 @@ export const router = createBrowserRouter([
               { path: '/team', element: <Navigate to="/team/admins" replace /> },
               { path: '/team/admins', element: <TeamAdminsPage /> },
               { path: '/team/staff', element: <TeamStaffPage /> },
-              { path: '/settings', element: <SettingsPage /> },
+              { path: '/profile', element: <ProfilePage /> },
+              // Old combined-page URL — redirect to the first (so far only)
+              // settings section rather than 404 anyone with it bookmarked
+              // (same "old combined URL" pattern as `/team` above).
+              { path: '/settings', element: <Navigate to="/settings/invoices" replace /> },
+              { path: '/settings/invoices', element: <InvoiceSettingsPage /> },
             ],
           },
           {

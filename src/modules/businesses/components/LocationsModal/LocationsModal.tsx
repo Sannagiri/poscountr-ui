@@ -103,6 +103,9 @@ const STATUS_FILTER_OPTIONS = [
   { value: 'false', label: 'Inactive' },
 ];
 
+// Opens on Active-only, same as every other status-filtered table.
+const DEFAULT_FILTER_VALUES: Record<string, string> = { isActive: 'true' };
+
 /**
  * All of one business's locations, in a focused modal of its own — opened
  * from a `BusinessCard`'s "N locations" button, same shape
@@ -178,7 +181,7 @@ export function LocationsModal({
   const [formError, setFormError] = useState<string | null>(null);
   const [pendingToggle, setPendingToggle] = useState<PendingToggle>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(DEFAULT_FILTER_VALUES);
 
   const businessLocations = business
     ? locations.filter((location) => location.businessId === business.id)
@@ -189,11 +192,11 @@ export function LocationsModal({
     [{ key: 'isActive', getValue: (location: Location) => String(location.isActive) }],
     filterValues,
   );
-  const hasActiveFilters = hasActiveListFilters(searchTerm, filterValues);
+  const hasActiveFilters = hasActiveListFilters(searchTerm, filterValues, DEFAULT_FILTER_VALUES);
 
   function clearAllFilters() {
     setSearchTerm('');
-    setFilterValues({});
+    setFilterValues(DEFAULT_FILTER_VALUES);
   }
 
   const {

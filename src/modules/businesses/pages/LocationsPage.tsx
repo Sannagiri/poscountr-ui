@@ -194,7 +194,8 @@ export function LocationsPage() {
   const filters: DataTableFilter<Location>[] = useMemo(
     () => [
       { key: 'businessId', label: 'Business', options: businessFilterOptions },
-      { key: 'isActive', label: 'Status', options: STATUS_FILTER_OPTIONS },
+      // Opens on Active-only, same as every other status-filtered table.
+      { key: 'isActive', label: 'Status', options: STATUS_FILTER_OPTIONS, defaultValue: 'true' },
     ],
     [businessFilterOptions],
   );

@@ -191,6 +191,8 @@ export function PlatformAdminsPage() {
           { value: 'false', label: 'Inactive' },
         ],
         getValue: (row) => String(row.isActive),
+        // Opens on Active-only, same as every other status-filtered table.
+        defaultValue: 'true',
       },
     ],
     [],

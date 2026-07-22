@@ -1,10 +1,12 @@
-import { NavLink } from 'react-router-dom';
-import { ShieldCheck } from 'lucide-react';
+import { useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
+import { ChevronDown, ShieldCheck } from 'lucide-react';
 
 import { cn } from '@/utils/cn';
 
 import type { UserRole } from '@/modules/auth';
 
+import type { NavItem } from './navConfig';
 import { navGroupsForRole } from './navConfig';
 
 export interface SidebarProps {
@@ -16,6 +18,11 @@ export interface SidebarProps {
    */
   variant?: 'desktop' | 'mobile';
 }
+
+const LEAF_LINK_CLASSES =
+  'flex items-center gap-3 rounded-[9px] px-3 py-2.5 text-[13px] font-medium text-ink-soft transition-colors hover:bg-surface hover:text-ink';
+const LEAF_LINK_ACTIVE_CLASSES =
+  'bg-brand/10 font-semibold text-brand hover:bg-brand/10 hover:text-brand';
 
 /**
  * Light sidebar with role-filtered navigation — restyled to match the
@@ -29,6 +36,7 @@ export interface SidebarProps {
  */
 export function Sidebar({ role, variant = 'desktop' }: SidebarProps) {
   const groups = navGroupsForRole(role);
+  const location = useLocation();
 
   return (
     <aside
@@ -51,28 +59,83 @@ export function Sidebar({ role, variant = 'desktop' }: SidebarProps) {
               {group.label}
             </p>
             <div className="flex flex-col gap-0.5">
-              {group.items.map((item) => (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  className={({ isActive }) =>
-                    cn(
-                      'flex items-center gap-3 rounded-[9px] px-3 py-2.5 text-[13px] font-medium text-ink-soft transition-colors',
-                      'hover:bg-surface hover:text-ink',
-                      isActive &&
-                        'bg-brand/10 font-semibold text-brand hover:bg-brand/10 hover:text-brand',
-                    )
-                  }
-                >
-                  {item.icon}
-                  {item.label}
-                </NavLink>
-              ))}
+              {group.items.map((item) =>
+                item.children && item.children.length > 0 ? (
+                  <NavAccordionItem key={item.path} item={item} pathname={location.pathname} />
+                ) : (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    className={({ isActive }) =>
+                      cn(LEAF_LINK_CLASSES, isActive && LEAF_LINK_ACTIVE_CLASSES)
+                    }
+                  >
+                    {item.icon}
+                    {item.label}
+                  </NavLink>
+                ),
+              )}
             </div>
           </div>
         ))}
       </nav>
     </aside>
+  );
+}
+
+interface NavAccordionItemProps {
+  item: NavItem;
+  pathname: string;
+}
+
+/**
+ * Collapsible sidebar group — e.g. "Settings" expanding to reveal "Invoices"
+ * (and whatever sections join it later). Starts expanded whenever the
+ * current route is already inside the group, so landing on `/settings/
+ * invoices` directly (a bookmark, a refresh) never hides the active item
+ * inside a collapsed accordion.
+ */
+function NavAccordionItem({ item, pathname }: NavAccordionItemProps) {
+  const children = item.children ?? [];
+  const hasActiveChild = children.some((child) => pathname.startsWith(child.path));
+  const [isOpen, setIsOpen] = useState(hasActiveChild);
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setIsOpen((open) => !open)}
+        aria-expanded={isOpen}
+        className={cn(
+          'flex w-full items-center gap-3 rounded-[9px] px-3 py-2.5 text-[13px] font-medium text-ink-soft transition-colors',
+          'hover:bg-surface hover:text-ink',
+          hasActiveChild && 'font-semibold text-ink',
+        )}
+      >
+        {item.icon}
+        <span className="flex-1 text-left">{item.label}</span>
+        <ChevronDown
+          size={14}
+          className={cn('shrink-0 text-ink-faint transition-transform', isOpen && 'rotate-180')}
+        />
+      </button>
+      {isOpen ? (
+        <div className="ml-3.5 mt-0.5 flex flex-col gap-0.5 border-l border-border pl-3">
+          {children.map((child) => (
+            <NavLink
+              key={child.path}
+              to={child.path}
+              className={({ isActive }) =>
+                cn(LEAF_LINK_CLASSES, 'py-2', isActive && LEAF_LINK_ACTIVE_CLASSES)
+              }
+            >
+              {child.icon}
+              {child.label}
+            </NavLink>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

@@ -14,6 +14,7 @@ import { useLicenseTypes } from '../hooks/useLicenseTypes';
 import { useTenants } from '../hooks/useTenants';
 import { platformService } from '../services/platformService';
 import type { Tenant } from '../types/platform.types';
+import { lifecycleConfirmCopy, nextLifecycleAction } from '../utils/tenantLifecycle';
 import type { CreateTenantFormValues } from '../validations/platform.validation';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -109,6 +110,10 @@ export function TenantsPage() {
     [licenseTypesQuery.data],
   );
 
+  const pendingActionCopy = pendingAction
+    ? lifecycleConfirmCopy(pendingAction.tenant, pendingAction.kind)
+    : null;
+
   const totalTenants = useMemo(() => tenantsQuery.data ?? [], [tenantsQuery.data]);
 
   const filteredTenants = useMemo(() => {
@@ -170,7 +175,7 @@ export function TenantsPage() {
         onToggleStatus={(tenant) =>
           setPendingAction({
             tenant,
-            kind: tenant.status === 'suspended' ? 'activate' : 'suspend',
+            kind: nextLifecycleAction(tenant.status),
           })
         }
       />
@@ -188,18 +193,10 @@ export function TenantsPage() {
 
       <ConfirmDialog
         open={pendingAction !== null}
-        title={
-          pendingAction?.kind === 'suspend' ? 'Suspend this business?' : 'Activate this business?'
-        }
-        description={
-          pendingAction?.kind === 'suspend'
-            ? `${pendingAction.tenant.name}'s staff and owner will be unable to log in until it's reactivated.`
-            : pendingAction
-              ? `${pendingAction.tenant.name} will regain access immediately.`
-              : undefined
-        }
-        confirmText={pendingAction?.kind === 'suspend' ? 'Suspend' : 'Activate'}
-        isDestructive={pendingAction?.kind === 'suspend'}
+        title={pendingActionCopy?.title ?? 'Update this business?'}
+        description={pendingActionCopy?.description}
+        confirmText={pendingActionCopy?.confirmText}
+        isDestructive={pendingActionCopy?.isDestructive ?? false}
         isLoading={statusMutation.isPending}
         onConfirm={() => pendingAction && statusMutation.mutate(pendingAction)}
         onCancel={() => setPendingAction(null)}
