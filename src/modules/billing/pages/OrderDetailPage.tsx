@@ -25,7 +25,6 @@ import {
   BILLING_QUERY_KEYS,
   BILLING_ROUTES,
   canCancel,
-  isFoodFlowProduct,
   nextStatusFor,
   ORDER_TYPE_OPTIONS,
   roleMayTransition,
@@ -98,13 +97,7 @@ export function OrderDetailPage() {
   const [addItemSearch, setAddItemSearch] = useState('');
   const [pendingCancel, setPendingCancel] = useState(false);
 
-  const isFoodFlow = useMemo(() => {
-    if (!order) return false;
-    const businessProduct = (productsQuery.data ?? []).find(
-      (product) => product.businessId === order.businessId,
-    );
-    return businessProduct ? isFoodFlowProduct(businessProduct) : false;
-  }, [order, productsQuery.data]);
+  const isFoodFlow = order?.kitchenEnabled ?? false;
 
   function invalidateOrder() {
     queryClient.invalidateQueries({ queryKey: BILLING_QUERY_KEYS.order(orderId ?? '') });
@@ -347,6 +340,10 @@ export function OrderDetailPage() {
               Order info
             </p>
             <div className="flex flex-col gap-1.5 text-sm">
+              <div className="flex justify-between">
+                <span className="text-ink-soft">Order #</span>
+                <span className="font-medium text-ink">{order.orderNumber ?? '—'}</span>
+              </div>
               <div className="flex justify-between">
                 <span className="text-ink-soft">Type</span>
                 <span className="font-medium text-ink">{ORDER_TYPE_LABELS[order.orderType]}</span>

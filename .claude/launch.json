@@ -1,0 +1,22 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ui",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3200,
+      "autoPort": true
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "/Users/sannagiriraviteja/Aarvin Technologies/API-POSCountr/poscountr-api/.venv/bin/python",
+      "runtimeArgs": [
+        "/Users/sannagiriraviteja/Aarvin Technologies/API-POSCountr/poscountr-api/manage.py",
+        "runserver",
+        "8200"
+      ],
+      "port": 8200
+    }
+  ]
+}

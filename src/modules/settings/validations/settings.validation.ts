@@ -57,3 +57,30 @@ export const invoiceSettingsFormSchema = z.object({
 });
 
 export type InvoiceSettingsFormValues = z.infer<typeof invoiceSettingsFormSchema>;
+
+/**
+ * Mirrors the backend's `OrderSettingsService.update` guard — at least one
+ * of customer name/phone must stay required (see
+ * `apps/billing/services/order_settings_service.py`'s `_NUMBERING_RESET_TRIGGERS`
+ * neighbor check). The `.refine()` attaches its error to `customerPhoneRequired`
+ * so it renders next to the second switch, where the conflict becomes true.
+ */
+export const orderSettingsFormSchema = z
+  .object({
+    resetPeriod: z.enum(['daily', 'monthly', 'yearly', 'continuous']),
+    numberingPrefix: z.string().max(12, 'At most 12 characters').optional().or(z.literal('')),
+    numberingStart: z
+      .string()
+      .min(1, 'Enter a starting number')
+      .max(10, 'At most 10 digits')
+      .regex(/^\d+$/, 'Digits only'),
+    customerNameRequired: z.boolean(),
+    customerPhoneRequired: z.boolean(),
+    kitchenEnabled: z.boolean(),
+  })
+  .refine((values) => values.customerNameRequired || values.customerPhoneRequired, {
+    message: 'At least one of customer name or phone must stay required',
+    path: ['customerPhoneRequired'],
+  });
+
+export type OrderSettingsFormValues = z.infer<typeof orderSettingsFormSchema>;

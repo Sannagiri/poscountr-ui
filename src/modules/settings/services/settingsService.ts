@@ -6,6 +6,8 @@ import type {
   InvoiceSettingsRequest,
   LicensePlan,
   LicensePlanResource,
+  OrderSettings,
+  OrderSettingsRequest,
   ResourceKey,
 } from '../types/settings.types';
 
@@ -70,6 +72,41 @@ function invoiceSettingsRequestToBody(request: InvoiceSettingsRequest) {
   };
 }
 
+interface OrderSettingsRaw {
+  id: string;
+  business_id: string;
+  reset_period: OrderSettings['resetPeriod'];
+  numbering_prefix: string;
+  numbering_start: string;
+  customer_name_required: boolean;
+  customer_phone_required: boolean;
+  kitchen_enabled: boolean;
+}
+
+function mapOrderSettings(raw: OrderSettingsRaw): OrderSettings {
+  return {
+    id: raw.id,
+    businessId: raw.business_id,
+    resetPeriod: raw.reset_period,
+    numberingPrefix: raw.numbering_prefix,
+    numberingStart: raw.numbering_start,
+    customerNameRequired: raw.customer_name_required,
+    customerPhoneRequired: raw.customer_phone_required,
+    kitchenEnabled: raw.kitchen_enabled,
+  };
+}
+
+function orderSettingsRequestToBody(request: OrderSettingsRequest) {
+  return {
+    reset_period: request.resetPeriod,
+    numbering_prefix: request.numberingPrefix,
+    numbering_start: request.numberingStart,
+    customer_name_required: request.customerNameRequired,
+    customer_phone_required: request.customerPhoneRequired,
+    kitchen_enabled: request.kitchenEnabled,
+  };
+}
+
 export const settingsService = {
   /** The acting tenant_admin's own plan & usage — every capped resource, `IsTenantAdmin`-gated server-side. */
   async getLicensePlan(): Promise<LicensePlan> {
@@ -111,5 +148,25 @@ export const settingsService = {
       apiClient.delete(`/tenant/businesses/${businessId}/invoice-settings/logo/`),
     );
     return mapInvoiceSettings(raw);
+  },
+
+  async getOrderSettings(businessId: string): Promise<OrderSettings> {
+    const raw = await unwrap<OrderSettingsRaw>(
+      apiClient.get(`/tenant/businesses/${businessId}/order-settings/`),
+    );
+    return mapOrderSettings(raw);
+  },
+
+  async updateOrderSettings(
+    businessId: string,
+    request: OrderSettingsRequest,
+  ): Promise<OrderSettings> {
+    const raw = await unwrap<OrderSettingsRaw>(
+      apiClient.patch(
+        `/tenant/businesses/${businessId}/order-settings/`,
+        orderSettingsRequestToBody(request),
+      ),
+    );
+    return mapOrderSettings(raw);
   },
 };

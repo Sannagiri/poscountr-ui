@@ -14,7 +14,7 @@ import {
 } from '@/modules/platform';
 import { ProfilePage } from '@/modules/profile';
 import { ReportsPage } from '@/modules/reports';
-import { InvoiceSettingsPage } from '@/modules/settings';
+import { InvoiceSettingsPage, OrderSettingsPage } from '@/modules/settings';
 import { TeamAdminsPage, TeamStaffPage } from '@/modules/team';
 
 import { RequireAuth } from './guards/RequireAuth';
@@ -80,6 +80,7 @@ export const router = createBrowserRouter([
               // (same "old combined URL" pattern as `/team` above).
               { path: '/settings', element: <Navigate to="/settings/invoices" replace /> },
               { path: '/settings/invoices', element: <InvoiceSettingsPage /> },
+              { path: '/settings/orders', element: <OrderSettingsPage /> },
             ],
           },
           {

@@ -68,3 +68,39 @@ export interface InvoiceSettingsRequest {
   footerNote?: string;
   showCustomerGstin?: boolean;
 }
+
+/** Mirrors `OrderResetPeriod.choices` (apps/billing/constants.py) exactly. */
+export type OrderResetPeriod = 'daily' | 'monthly' | 'yearly' | 'continuous';
+
+/**
+ * One business's order configuration (`OrderSettings` model) — one row per
+ * `BusinessEntity`, shared across all of that business's locations: order
+ * numbering, whether customer name/phone are mandatory at order creation,
+ * and whether the business runs the kitchen (KOT/KDS) flow.
+ *
+ * `numberingStart` is a digit string (e.g. `'0001'`), not a number — its
+ * length is the zero-padding width applied to every generated order number,
+ * and its integer value is the sequence used on each reset. A plain
+ * `<input type="number">` can't hold a leading zero, which is why this stays
+ * a string end-to-end (mirrors `OrderSettings.numbering_start` on the backend).
+ */
+export interface OrderSettings {
+  id: string;
+  businessId: string;
+  resetPeriod: OrderResetPeriod;
+  numberingPrefix: string;
+  numberingStart: string;
+  customerNameRequired: boolean;
+  customerPhoneRequired: boolean;
+  kitchenEnabled: boolean;
+}
+
+/** `PATCH /tenant/businesses/{id}/order-settings/` body — partial, every field optional. */
+export interface OrderSettingsRequest {
+  resetPeriod?: OrderResetPeriod;
+  numberingPrefix?: string;
+  numberingStart?: string;
+  customerNameRequired?: boolean;
+  customerPhoneRequired?: boolean;
+  kitchenEnabled?: boolean;
+}

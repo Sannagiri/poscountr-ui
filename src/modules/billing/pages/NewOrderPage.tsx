@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import { ListOrdered, Minus, Plus, Trash2 } from 'lucide-react';
@@ -15,22 +15,22 @@ import {
   useToast,
 } from '@/components';
 import { useFillRemainingHeight } from '@/hooks/useFillRemainingHeight';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { describeApiError } from '@/utils/errors';
+import { breakpoints } from '@/styles/breakpoints';
 
 import { useAuthStore } from '@/modules/auth';
 import { useBusinesses, useLocations } from '@/modules/businesses';
 import type { Product } from '@/modules/inventory';
 import { useProducts } from '@/modules/inventory';
+import { useOrderSettings } from '@/modules/settings';
 
-import {
-  BILLING_ROUTES,
-  isFoodFlowProduct,
-  ORDER_TYPE_OPTIONS,
-} from '../constants/billing.constants';
+import { BILLING_ROUTES, ORDER_TYPE_OPTIONS } from '../constants/billing.constants';
+import { useAutoSelectSingle } from '../hooks/useAutoSelectSingle';
 import { billingService } from '../services/billingService';
 import type { Order, OrderStatus } from '../types/billing.types';
 import type { OrderCreateFormValues } from '../validations/billing.validation';
-import { orderCreateSchema } from '../validations/billing.validation';
+import { buildOrderCreateSchema } from '../validations/billing.validation';
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
@@ -138,6 +138,20 @@ export function NewOrderPage() {
 
   const productGridRef = useRef<HTMLDivElement>(null);
   const productGridHeight = useFillRemainingHeight(productGridRef, { minHeight: 320 });
+  // Below `lg` the two "columns" stack into one (see the form's own
+  // `grid-cols-1 lg:grid-cols-2`), so filling "the rest of the viewport"
+  // for the product grid would eat the whole screen before the cart,
+  // customer details, or the submit button ever come into view — a fixed
+  // `max-h` + its own scroll instead keeps the grid a reasonably-sized pane
+  // the user can browse without losing the rest of the page below it.
+  const isDesktopLayout = useMediaQuery(`(min-width: ${breakpoints.lg}px)`);
+
+  // Resolver reads from this ref rather than closing over `orderSettingsQuery.data`
+  // directly — `useForm`'s `resolver` identity only needs to stay stable; the ref
+  // is kept current by the effect below, so `trigger()`/`handleSubmit()` always
+  // validate against whichever business's required-field settings are selected
+  // right now, without needing to reconstruct the form on every settings load.
+  const requiredFieldsRef = useRef({ nameRequired: true, phoneRequired: true });
 
   const {
     register,
@@ -145,13 +159,24 @@ export function NewOrderPage() {
     handleSubmit,
     watch,
     reset,
+    setValue,
     formState: { errors },
   } = useForm<OrderCreateFormValues>({
-    resolver: zodResolver(orderCreateSchema),
+    resolver: (values, context, options) =>
+      zodResolver(
+        buildOrderCreateSchema(
+          requiredFieldsRef.current.nameRequired,
+          requiredFieldsRef.current.phoneRequired,
+        ),
+      )(values, context, options),
     defaultValues: { orderType: 'takeaway', businessId: '', locationId: '' },
   });
 
   const selectedBusinessId = watch('businessId');
+  // Table number is a dine-in concept, not a kitchen one — a takeaway/delivery
+  // order never has a table, and a business without a kitchen can still seat
+  // dine-in customers (e.g. a retail counter with a small seating area).
+  const isDineIn = watch('orderType') === 'dine_in';
 
   const businessOptions = useMemo(
     () =>
@@ -162,13 +187,46 @@ export function NewOrderPage() {
     [businessesQuery.data],
   );
 
-  const locationOptions = useMemo(
+  const filteredLocations = useMemo(
     () =>
-      (locationsQuery.data ?? [])
-        .filter((location) => !selectedBusinessId || location.businessId === selectedBusinessId)
-        .map((location) => ({ value: location.id, label: location.name })),
+      (locationsQuery.data ?? []).filter(
+        (location) => !selectedBusinessId || location.businessId === selectedBusinessId,
+      ),
     [locationsQuery.data, selectedBusinessId],
   );
+
+  const locationOptions = useMemo(
+    () => filteredLocations.map((location) => ({ value: location.id, label: location.name })),
+    [filteredLocations],
+  );
+
+  // Auto-fill (and, per the Selects' own conditional rendering below, hide)
+  // the business/location pickers when there's exactly one option — a
+  // tenant_admin with a single business/location never has to touch these.
+  useAutoSelectSingle(businessesQuery.data, selectedBusinessId, (id) => setValue('businessId', id));
+  useAutoSelectSingle(filteredLocations, watch('locationId'), (id) => setValue('locationId', id));
+
+  // Clear a stray table number left over from a previous dine-in selection —
+  // otherwise it'd still submit (and later display) on a takeaway/delivery
+  // order even though the field itself is hidden once orderType changes.
+  useEffect(() => {
+    if (!isDineIn) setValue('tableNumber', '');
+  }, [isDineIn, setValue]);
+
+  // Only a tenant_admin has a resolved business before the order exists (a
+  // manager's business is implied server-side by their assigned location —
+  // see `_scope.resolve_order_context` — with no pre-creation equivalent on
+  // the frontend today). Defaults (both required, kitchen fields shown)
+  // match the pre-OrderSettings behavior, so a manager's form doesn't change.
+  const orderSettingsQuery = useOrderSettings(
+    isTenantAdmin ? selectedBusinessId || undefined : undefined,
+  );
+  const nameRequired = isTenantAdmin ? (orderSettingsQuery.data?.customerNameRequired ?? true) : true;
+  const phoneRequired = isTenantAdmin ? (orderSettingsQuery.data?.customerPhoneRequired ?? true) : true;
+
+  useEffect(() => {
+    requiredFieldsRef.current = { nameRequired, phoneRequired };
+  }, [nameRequired, phoneRequired]);
 
   const availableProducts = useMemo(() => {
     let products = productsQuery.data ?? [];
@@ -227,19 +285,12 @@ export function NewOrderPage() {
 
   // Whether the just-created order's business runs the food flow
   // (pending → kot_fired → … ) vs. the non-food flow (pending → completed
-  // directly) — same signal `OrderDetailPage` uses. This is what actually
-  // decides which of the two actions is valid from `pending`, mirroring
-  // `nextStatusFor` in `billing.constants.ts`: a food-flow order can only
-  // move to `kot_fired` next, a non-food order can only move to
-  // `completed` — there's no order for which both are legal, so the modal
-  // shows whichever one the backend will actually accept.
-  const isFoodFlow = useMemo(() => {
-    if (!pendingOrder) return false;
-    const businessProduct = (productsQuery.data ?? []).find(
-      (product) => product.businessId === pendingOrder.businessId,
-    );
-    return businessProduct ? isFoodFlowProduct(businessProduct) : false;
-  }, [pendingOrder, productsQuery.data]);
+  // directly) — read straight off the order (`OrderOutputSerializer`'s
+  // `kitchen_enabled`, the business's `OrderSettings.kitchen_enabled` at
+  // creation time), same signal `OrderDetailPage` uses. This is what
+  // actually decides which of the two actions is valid from `pending`,
+  // mirroring `nextStatusFor` in `billing.constants.ts`.
+  const isFoodFlow = pendingOrder?.kitchenEnabled ?? false;
 
   function closeModalAndReset() {
     setPendingOrder(null);
@@ -330,7 +381,7 @@ export function NewOrderPage() {
     : 0;
 
   return (
-    <div>
+    <div className="pb-24 lg:pb-0">
       <PageHeader
         title="New order"
         subtitle="Pick items and enter the customer's details"
@@ -351,41 +402,45 @@ export function NewOrderPage() {
         className="grid grid-cols-1 gap-4 lg:grid-cols-2"
       >
         <div className="flex min-w-0 flex-col gap-4">
-          {isTenantAdmin ? (
+          {isTenantAdmin && (businessOptions.length > 1 || locationOptions.length > 1) ? (
             <Card>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Controller
-                  name="businessId"
-                  control={control}
-                  render={({ field }) => (
-                    <Select
-                      label="Business"
-                      placeholder="Select a business"
-                      options={businessOptions}
-                      value={field.value}
-                      onChange={field.onChange}
-                      onBlur={field.onBlur}
-                      name={field.name}
-                      disabled={businessesQuery.isLoading}
-                    />
-                  )}
-                />
-                <Controller
-                  name="locationId"
-                  control={control}
-                  render={({ field }) => (
-                    <Select
-                      label="Location"
-                      placeholder="Auto-selected if only one"
-                      options={locationOptions}
-                      value={field.value}
-                      onChange={field.onChange}
-                      onBlur={field.onBlur}
-                      name={field.name}
-                      disabled={!selectedBusinessId}
-                    />
-                  )}
-                />
+                {businessOptions.length > 1 ? (
+                  <Controller
+                    name="businessId"
+                    control={control}
+                    render={({ field }) => (
+                      <Select
+                        label="Business"
+                        placeholder="Select a business"
+                        options={businessOptions}
+                        value={field.value}
+                        onChange={field.onChange}
+                        onBlur={field.onBlur}
+                        name={field.name}
+                        disabled={businessesQuery.isLoading}
+                      />
+                    )}
+                  />
+                ) : null}
+                {locationOptions.length > 1 ? (
+                  <Controller
+                    name="locationId"
+                    control={control}
+                    render={({ field }) => (
+                      <Select
+                        label="Location"
+                        placeholder="Select a location"
+                        options={locationOptions}
+                        value={field.value}
+                        onChange={field.onChange}
+                        onBlur={field.onBlur}
+                        name={field.name}
+                        disabled={!selectedBusinessId}
+                      />
+                    )}
+                  />
+                ) : null}
               </div>
             </Card>
           ) : null}
@@ -420,8 +475,8 @@ export function NewOrderPage() {
             ) : (
               <div
                 ref={productGridRef}
-                style={{ height: productGridHeight }}
-                className="grid grid-cols-1 content-start gap-2 overflow-y-auto pr-1 sm:grid-cols-2"
+                style={isDesktopLayout ? { height: productGridHeight } : undefined}
+                className="grid max-h-[45vh] grid-cols-1 content-start gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:max-h-none"
               >
                 {availableProducts.map((product) => (
                   <button
@@ -511,20 +566,20 @@ export function NewOrderPage() {
             )}
           </Card>
 
-          <Card className="h-[240px] overflow-y-auto">
+          <Card>
             <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
               Customer & order details
             </p>
             <div className="flex flex-col gap-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Input
-                  label="Customer name"
+                  label={nameRequired ? 'Customer name' : 'Customer name (optional)'}
                   placeholder="Walk-in customer"
                   {...register('customerName')}
                   errorMessage={errors.customerName?.message}
                 />
                 <Input
-                  label="Phone"
+                  label={phoneRequired ? 'Phone' : 'Phone (optional)'}
                   placeholder="9876543210"
                   {...register('customerPhone')}
                   errorMessage={errors.customerPhone?.message}
@@ -545,19 +600,34 @@ export function NewOrderPage() {
                     />
                   )}
                 />
-                <Input label="Table number (optional)" {...register('tableNumber')} />
+                {isDineIn ? (
+                  <Input label="Table number (optional)" {...register('tableNumber')} />
+                ) : null}
               </div>
             </div>
           </Card>
 
-          <Button
-            type="submit"
-            size="lg"
-            isLoading={createMutation.isPending}
-            disabled={cartLines.length === 0}
-          >
-            Create order
-          </Button>
+          {/* Fixed (not sticky) below `lg` so the submit action stays
+              reachable without scrolling past the cart/customer-details
+              cards above it — `position: sticky` only clamps to the
+              viewport edge once the page has scrolled *past* this element's
+              normal position, so on a page barely taller than one screen it
+              would render mid-content instead of waiting below the fold.
+              `fixed` always pins it; the page's own `pb-24` (root wrapper,
+              cleared again at `lg`) reserves the matching space so it never
+              overlaps real content. At `lg` this collapses back to a plain
+              in-flow button (matches the side-by-side desktop layout, where
+              it's already on-screen). */}
+          <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-surface px-4 py-3 sm:px-6 lg:static lg:inset-auto lg:z-auto lg:border-0 lg:bg-transparent lg:px-0 lg:py-0">
+            <Button
+              type="submit"
+              size="lg"
+              isLoading={createMutation.isPending}
+              disabled={cartLines.length === 0}
+            >
+              {cartLines.length > 0 ? `Create order · ₹${estimatedTotal.toFixed(2)}` : 'Create order'}
+            </Button>
+          </div>
         </div>
       </form>
 

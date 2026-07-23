@@ -107,6 +107,12 @@ export function OrdersPage() {
   const columns: DataTableColumn<Order>[] = useMemo(
     () => [
       {
+        key: 'orderNumber',
+        header: 'Order #',
+        width: '110px',
+        render: (row) => row.orderNumber ?? '—',
+      },
+      {
         key: 'customerName',
         header: 'Customer',
         width: '1.3fr',
@@ -183,6 +189,26 @@ export function OrdersPage() {
           searchPlaceholder="Search orders…"
           filters={filters}
           onRowClick={(row) => navigate(BILLING_ROUTES.orderDetail(row.id))}
+          mobileCard={(row) => (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-sm font-semibold text-ink">
+                  {row.orderNumber ?? (row.tokenNumber ? `Token #${row.tokenNumber}` : '—')}
+                </span>
+                <Badge tone={toneForStatus(row.status)}>{statusLabel(row.status)}</Badge>
+              </div>
+              <span className="truncate text-sm text-ink">{row.customerName || 'Walk-in'}</span>
+              <div className="flex items-center justify-between gap-2 text-xs text-ink-faint">
+                <span className="truncate">
+                  {ORDER_TYPE_LABELS[row.orderType]} · {row.locationName}
+                </span>
+                <span className="shrink-0 font-semibold text-ink">₹{row.total}</span>
+              </div>
+              <span className="text-xs text-ink-faint">
+                {new Date(row.createdAt).toLocaleString()}
+              </span>
+            </div>
+          )}
           toolbarTrailing={
             <>
               <Select

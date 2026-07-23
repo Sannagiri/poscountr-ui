@@ -5,6 +5,7 @@ import {
   ChefHat,
   History,
   LayoutDashboard,
+  ListOrdered,
   MapPin,
   Receipt,
   Settings,
@@ -145,6 +146,12 @@ export const OWNER_NAV_GROUPS: NavGroup[] = [
             label: 'Invoices',
             path: '/settings/invoices',
             icon: <Receipt size={ICON_SIZE} />,
+            roles: ['tenant_admin'],
+          },
+          {
+            label: 'Orders',
+            path: '/settings/orders',
+            icon: <ListOrdered size={ICON_SIZE} />,
             roles: ['tenant_admin'],
           },
           // More sections (e.g. Tax, Notifications, Integrations) land here

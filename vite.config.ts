@@ -13,11 +13,11 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3200,
+    port: Number(process.env.PORT) || 3200,
     host: true,
   },
   preview: {
-    port: 3200,
+    port: Number(process.env.PORT) || 3200,
     host: true,
   },
   test: {

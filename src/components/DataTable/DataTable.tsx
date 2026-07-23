@@ -12,8 +12,10 @@ import { ListToolbar } from '@/components/ListToolbar';
 import { Loader } from '@/components/Loader';
 import { useFillRemainingHeight } from '@/hooks/useFillRemainingHeight';
 import { useInfiniteReveal } from '@/hooks/useInfiniteReveal';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { cn } from '@/utils/cn';
 import { applyFilterValues, filterBySearch, hasActiveListFilters } from '@/utils/listFilter';
+import { breakpoints } from '@/styles/breakpoints';
 
 import type {
   DataTableColumn,
@@ -75,6 +77,16 @@ export interface DataTableProps<TRow> {
   batchSize?: number;
   /** Never shrinks the row area below this many pixels, even on a very short viewport. Default 240. */
   minBodyHeight?: number;
+  /**
+   * Opt-in mobile layout: below `md`, renders one of these per row (in a
+   * plain page-scrolling list, not the fixed-height grid table) instead of
+   * the multi-column table — a table with more than 3-4 columns reads as
+   * cramped and forces horizontal scrolling on a phone. Omit to keep the
+   * table on every screen size (this is the default and every existing
+   * caller's current behavior — passing this prop is the only thing that
+   * changes it, so it's zero-risk to every other `DataTable` on the page).
+   */
+  mobileCard?: (row: TRow) => ReactNode;
 }
 
 const DEFAULT_BATCH_SIZE = 25;
@@ -124,7 +136,11 @@ export function DataTable<TRow>({
   rowActions,
   batchSize = DEFAULT_BATCH_SIZE,
   minBodyHeight = 240,
+  mobileCard,
 }: DataTableProps<TRow>) {
+  const isNarrowViewport = useMediaQuery(`(max-width: ${breakpoints.md - 1}px)`);
+  const showMobileCards = Boolean(mobileCard) && isNarrowViewport;
+
   const [searchTerm, setSearchTerm] = useState('');
   // A filter with its own `defaultValue` (e.g. Status → "Active") starts
   // there instead of "All ___" — see `DataTableFilter.defaultValue`'s doc
@@ -308,11 +324,56 @@ export function DataTable<TRow>({
           </button>
         </div>
       ) : null}
-      <div
-        ref={scrollContainerRef}
-        className="scrollbar-thin overflow-auto rounded-control border border-border"
-        style={{ height: bodyHeight }}
-      >
+      {showMobileCards ? (
+        <div role="list" className="flex flex-col gap-2">
+          {renderedRows.map((row) => {
+            const key = getRowKey(row);
+            return (
+              <div
+                key={key}
+                role={onRowClick ? 'button' : 'listitem'}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+                onKeyDown={
+                  onRowClick
+                    ? (event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          onRowClick(row);
+                        }
+                      }
+                    : undefined
+                }
+                tabIndex={onRowClick ? 0 : undefined}
+                className={cn(
+                  'flex items-start justify-between gap-3 rounded-control border border-border p-3',
+                  onRowClick &&
+                    'cursor-pointer hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
+                )}
+              >
+                <div className="min-w-0 flex-1">{mobileCard?.(row)}</div>
+                {rowActions ? (
+                  // Only blocks bubbling into the card's own onClick — the
+                  // kebab button/menu inside is the real interactive element.
+                  // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+                  <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                    <RowActionsMenu row={row} actions={rowActions(row)} />
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+          {hasMore ? (
+            <div ref={sentinelRef} className="flex justify-center py-3">
+              <Loader size="sm" />
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div
+          ref={scrollContainerRef}
+          className="scrollbar-thin overflow-auto rounded-control border border-border"
+          style={{ height: bodyHeight }}
+        >
         <div role="table" className="w-full text-sm">
           <div role="rowgroup" className="sticky top-0 z-10 rounded-t-control bg-surface">
             <div
@@ -467,7 +528,8 @@ export function DataTable<TRow>({
             )}
           </div>
         </div>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

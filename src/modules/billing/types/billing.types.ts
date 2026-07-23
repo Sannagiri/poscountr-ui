@@ -40,12 +40,10 @@ export interface OrderItem {
  * price-free `KdsOrder` projection instead (see below).
  *
  * Which of the six `*_at` timestamps end up populated — and which
- * lifecycle transition applies next — depends on whether the owning
- * business runs the food flow (kot_fired → preparing → ready → delivered
- * → completed) or the non-food flow (pending → completed directly). There
- * is no raw `entity_type` on this response; `isFoodFlowProduct()` in
- * `billing.constants.ts` derives it from any one product of the order's
- * business instead (same signal `ProductFormModal` already uses).
+ * lifecycle transition applies next — depends on `kitchenEnabled`, the
+ * order's business's `OrderSettings.kitchen_enabled` at read time (food
+ * flow: kot_fired → preparing → ready → delivered → completed; non-food:
+ * pending → completed directly).
  */
 export interface Order {
   id: string;
@@ -54,6 +52,10 @@ export interface Order {
   locationName: string;
   status: OrderStatus;
   orderType: OrderType;
+  /** Per-business gap-less order number; `null` for orders created before this field existed. */
+  orderNumber: string | null;
+  /** Mirrors the business's `OrderSettings.kitchen_enabled` at read time — drives which transitions are legal next. */
+  kitchenEnabled: boolean;
   tableNumber: string;
   tokenNumber: number | null;
   tokenDate: string | null;
@@ -87,9 +89,11 @@ export interface OrderLineRequest {
  * manager is always forced to their own assigned location server-side
  * regardless of what's sent, and a tenant_admin only needs to supply them
  * when the tenant has more than one active business/location (auto-resolved
- * otherwise). `customerName`/`customerPhone` are the only fields every
- * order truly requires; prices are never sent from the client — they're
- * always snapshotted server-side from the current product.
+ * otherwise). Whether `customerName`/`customerPhone` are actually required
+ * depends on the business's `OrderSettings` (`customerNameRequired`/
+ * `customerPhoneRequired` — see `modules/settings`); prices are never sent
+ * from the client — they're always snapshotted server-side from the
+ * current product.
  */
 export interface OrderCreateRequest {
   businessId?: string;
@@ -99,8 +103,8 @@ export interface OrderCreateRequest {
   note?: string;
   idempotencyKey?: string;
   items?: OrderLineRequest[];
-  customerName: string;
-  customerPhone: string;
+  customerName?: string;
+  customerPhone?: string;
   customerEmail?: string;
   customerGstin?: string;
   customerState?: string;

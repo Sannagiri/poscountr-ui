@@ -41,24 +41,6 @@ export const KDS_LATE_THRESHOLD_MINUTES = 15;
 export const MAX_ITEMS_PER_ORDER = 100;
 
 /**
- * Food flow (restaurant/cafe) businesses are exactly the ones whose
- * products come back with both tracking flags false — the same
- * `isStockTracked === false && isBatchTracked === false` signal
- * `ProductFormModal` already uses to gate restaurant-only fields (per
- * `apps/businesses/constants.py`'s `flags_for()`). Billing responses have
- * no raw `entity_type` anywhere, so any one product belonging to the
- * order's business answers this — every order screen that needs to know
- * the flow already has the business's product catalog loaded via
- * `useProducts()` first.
- */
-export function isFoodFlowProduct(product: {
-  isStockTracked: boolean;
-  isBatchTracked: boolean;
-}): boolean {
-  return !product.isStockTracked && !product.isBatchTracked;
-}
-
-/**
  * Forward path for each flow — mirrors `_FOOD_TRANSITIONS`/
  * `_NONFOOD_TRANSITIONS` in `apps/billing/constants.py`, inverted (current
  * status → next status) since the UI only ever needs "what's the one next

@@ -51,6 +51,8 @@ interface OrderRaw {
   location_name: string;
   status: OrderStatus;
   order_type: OrderType;
+  order_number: string | null;
+  kitchen_enabled: boolean;
   table_number: string;
   token_number: number | null;
   token_date: string | null;
@@ -81,6 +83,8 @@ function mapOrder(raw: OrderRaw): Order {
     locationName: raw.location_name,
     status: raw.status,
     orderType: raw.order_type,
+    orderNumber: raw.order_number,
+    kitchenEnabled: raw.kitchen_enabled,
     tableNumber: raw.table_number,
     tokenNumber: raw.token_number,
     tokenDate: raw.token_date,
