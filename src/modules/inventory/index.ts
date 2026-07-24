@@ -1,4 +1,9 @@
-export { formatQuantity, INVENTORY_ROUTES, isStockRowLow } from './constants/inventory.constants';
+export {
+  formatQuantity,
+  INVENTORY_ROUTES,
+  isCountableUnit,
+  isStockRowLow,
+} from './constants/inventory.constants';
 export { useCategories } from './hooks/useCategories';
 export { useProducts } from './hooks/useProducts';
 export { ProductsPage } from './pages/ProductsPage';

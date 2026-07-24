@@ -80,6 +80,7 @@ export function BusinessesPage() {
         entityType: values.entityType,
         gstin: values.gstin || undefined,
         phone: values.phone || undefined,
+        state: values.state || undefined,
       };
       if (editingBusiness) {
         await businessesService.updateBusiness(editingBusiness.id, request);

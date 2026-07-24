@@ -56,6 +56,8 @@ export interface Order {
   orderNumber: string | null;
   /** Mirrors the business's `OrderSettings.kitchen_enabled` at read time — drives which transitions are legal next. */
   kitchenEnabled: boolean;
+  /** The floor-plan table (`modules/tables`) this order was opened from, if any — `null` for the classic flow or a takeaway/delivery order. */
+  tableId: string | null;
   tableNumber: string;
   tokenNumber: number | null;
   tokenDate: string | null;
@@ -99,6 +101,8 @@ export interface OrderCreateRequest {
   businessId?: string;
   locationId?: string;
   orderType?: OrderType;
+  /** A floor-plan table (`modules/tables`) — when given, the backend derives business/location/table_number from it, overriding those fields above. */
+  tableId?: string;
   tableNumber?: string;
   note?: string;
   idempotencyKey?: string;

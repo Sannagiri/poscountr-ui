@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 
-import { Button, Input, Modal } from '@/components';
+import { Button, Input, Modal, Select } from '@/components';
 
+import { INDIAN_STATE_OPTIONS } from '../../constants/businesses.constants';
 import type { BusinessEntity } from '../../types/businesses.types';
 import type { BusinessFormValues } from '../../validations/businesses.validation';
 import { businessSchema } from '../../validations/businesses.validation';
@@ -25,6 +26,7 @@ const EMPTY_VALUES: BusinessFormValues = {
   entityType: 'restaurant',
   gstin: '',
   phone: '',
+  state: '',
 };
 
 /**
@@ -67,6 +69,7 @@ export function BusinessEditModal({
             entityType: business.entityType,
             gstin: business.gstin ?? '',
             phone: business.phone,
+            state: business.state,
           }
         : EMPTY_VALUES,
     );
@@ -128,6 +131,23 @@ export function BusinessEditModal({
           />
           <Input label="Phone (optional)" placeholder="9876543210" {...register('phone')} />
         </div>
+
+        <Controller
+          name="state"
+          control={control}
+          render={({ field }) => (
+            <Select
+              label="State (optional)"
+              hint="Required before a GST invoice/bill can be generated for this business's orders"
+              placeholder="Choose a state"
+              options={INDIAN_STATE_OPTIONS}
+              value={field.value}
+              onChange={field.onChange}
+              onBlur={field.onBlur}
+              name={field.name}
+            />
+          )}
+        />
 
         {submitError ? <p className="text-sm text-danger">{submitError}</p> : null}
       </form>

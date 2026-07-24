@@ -1,7 +1,7 @@
 import type { ChangeEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { AlertCircle, Check, ChefHat, Hash, Loader2, UserCheck } from 'lucide-react';
+import { AlertCircle, Check, ChefHat, Hash, LayoutGrid, Loader2, UserCheck } from 'lucide-react';
 
 import { Card, CardHeader, Input, PageHeader, Select, Switch, useToast } from '@/components';
 import { cn } from '@/utils/cn';
@@ -25,6 +25,7 @@ const EMPTY_ORDER_VALUES: OrderSettingsFormValues = {
   customerNameRequired: true,
   customerPhoneRequired: true,
   kitchenEnabled: true,
+  tableLayoutEnabled: false,
 };
 
 /** How long to let typing/toggling settle before autosaving a field change. */
@@ -38,11 +39,13 @@ type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
  * (auto-picks the first business, hidden when there's only one), no Save
  * button, autosaves a short debounce after the last edit.
  *
- * Three cards: order numbering (reset period / prefix / starting number),
+ * Four cards: order numbering (reset period / prefix / starting number),
  * required customer fields (name/phone switches — the backend rejects
  * turning both off, mirrored here so the error surfaces without a round
- * trip), and the kitchen flow toggle (drives whether New Order shows
- * table-number/KOT fields and which order-status flow applies).
+ * trip), the kitchen flow toggle (drives whether New Order shows
+ * table-number/KOT fields and which order-status flow applies), and the
+ * table-first ordering toggle (drives whether New Order starts from a
+ * floor-plan table-select step instead of business/location pickers).
  */
 export function OrderSettingsPage() {
   const queryClient = useQueryClient();
@@ -87,6 +90,7 @@ export function OrderSettingsPage() {
       customerNameRequired: orderSettingsQuery.data.customerNameRequired,
       customerPhoneRequired: orderSettingsQuery.data.customerPhoneRequired,
       kitchenEnabled: orderSettingsQuery.data.kitchenEnabled,
+      tableLayoutEnabled: orderSettingsQuery.data.tableLayoutEnabled,
     };
     resetForm(values);
     lastSavedRef.current = JSON.stringify(values);
@@ -315,6 +319,38 @@ export function OrderSettingsPage() {
                     checked={field.value}
                     onCheckedChange={field.onChange}
                     label="This business runs a kitchen"
+                  />
+                </div>
+              )}
+            />
+          </Card>
+
+          <Card>
+            <CardHeader
+              icon={LayoutGrid}
+              title="Table-first ordering"
+              subtitle="Start New order from a table layout instead of business/location pickers"
+            />
+            <Controller
+              control={control}
+              name="tableLayoutEnabled"
+              render={({ field }) => (
+                <div className="flex items-start justify-between gap-4 rounded-control border border-border bg-surface/60 p-3.5">
+                  <span>
+                    <span className="block text-sm font-semibold text-ink">
+                      Pick a table before picking items
+                    </span>
+                    <span className="mt-0.5 block text-xs text-ink-faint">
+                      When on, New order opens the location&apos;s floor plan first — tap a
+                      table to start (or reopen its bill if it&apos;s already occupied).
+                      Design each location&apos;s layout from Locations → Edit layout. When off,
+                      New order works exactly as it does today.
+                    </span>
+                  </span>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    label="Pick a table before picking items"
                   />
                 </div>
               )}

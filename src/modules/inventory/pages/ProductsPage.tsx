@@ -46,10 +46,10 @@ function isProductLowStock(product: Product): boolean {
   return product.isStockTracked && product.stock.some(isStockRowLow);
 }
 
-/** Summing decimal strings as JS numbers can leave float artifacts (e.g. `100.30000000000001`) — `formatQuantity` rounds to the same 3 decimal places the backend stores and trims the noise back off. */
+/** Summing decimal strings as JS numbers can leave float artifacts (e.g. `100.30000000000001`) — `formatQuantity` rounds per the product's own unit (whole number for a countable unit, one decimal otherwise) and trims the noise back off. */
 function totalQuantity(product: Product): string {
   const sum = product.stock.reduce((total, row) => total + Number(row.quantity), 0);
-  return formatQuantity(String(sum));
+  return formatQuantity(String(sum), product.unit);
 }
 
 /**

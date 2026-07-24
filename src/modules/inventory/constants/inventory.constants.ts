@@ -51,16 +51,44 @@ export function isStockRowLow(row: { quantity: string; reorderLevel: string }): 
 }
 
 /**
+ * Units sold by count, never by fraction — a quantity in one of these is
+ * always a whole number, both on screen and in whatever's typed into a
+ * quantity field. Everything else (`kg`/`g`/`litre`/`ml`/`meter`) is a
+ * weight/volume/length unit, sold in fractional amounts (0.5 kg of rice),
+ * capped at one decimal place rather than left at the backend's full
+ * `decimal(_,3)` precision.
+ */
+const COUNTABLE_UNITS: ReadonlySet<Unit> = new Set([
+  'pcs',
+  'pack',
+  'box',
+  'dozen',
+  'plate',
+  'bottle',
+]);
+
+export function isCountableUnit(unit: Unit): boolean {
+  return COUNTABLE_UNITS.has(unit);
+}
+
+/**
  * Decimal fields stay `string` end-to-end everywhere else in this module
  * (see `inventory.types.ts`'s own doc comment on why) — always at their
  * full stored precision (e.g. `100.000`), which reads as noise for what's
- * usually a plain whole-number quantity. This trims trailing zeros (and a
- * now-pointless trailing decimal point) for *display only*; every read
- * that isn't a label — a form default value, a write payload — keeps using
- * the raw string.
+ * usually a plain whole-number quantity. This is *display only*; every
+ * read that isn't a label — a form default value, a write payload — keeps
+ * using the raw string.
+ *
+ * Without a `unit` (the caller doesn't know or care which product this
+ * quantity belongs to), trims trailing zeros off the full 3-place
+ * precision, same as before. With a `unit`, applies the stricter rule
+ * above: a whole number for a countable unit, at most one decimal place
+ * otherwise.
  */
-export function formatQuantity(value: string): string {
+export function formatQuantity(value: string, unit?: Unit): string {
   const num = Number(value);
   if (!Number.isFinite(num)) return value;
-  return num.toFixed(3).replace(/\.?0+$/, '') || '0';
+  if (!unit) return num.toFixed(3).replace(/\.?0+$/, '') || '0';
+  if (isCountableUnit(unit)) return String(Math.round(num));
+  return num.toFixed(1).replace(/\.0$/, '') || '0';
 }

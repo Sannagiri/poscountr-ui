@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { Ban, CheckCircle2, Pencil, XCircle } from 'lucide-react';
+import { Ban, CheckCircle2, LayoutGrid, Pencil, XCircle } from 'lucide-react';
 
 import {
   Badge,
@@ -18,6 +18,8 @@ import { cn } from '@/utils/cn';
 import { describeApiError } from '@/utils/errors';
 import { applyFilterValues, filterBySearch, hasActiveListFilters } from '@/utils/listFilter';
 import { toneForStatus } from '@/utils/status';
+
+import { TableLayoutEditorModal } from '@/modules/tables';
 
 import { BUSINESSES_QUERY_KEYS, INDIAN_STATE_OPTIONS } from '../../constants/businesses.constants';
 import { useLicenseUsage } from '../../hooks/useLicenseUsage';
@@ -182,6 +184,7 @@ export function LocationsModal({
   const [pendingToggle, setPendingToggle] = useState<PendingToggle>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterValues, setFilterValues] = useState<Record<string, string>>(DEFAULT_FILTER_VALUES);
+  const [editingLayoutLocation, setEditingLayoutLocation] = useState<Location | null>(null);
 
   const businessLocations = business
     ? locations.filter((location) => location.businessId === business.id)
@@ -344,7 +347,7 @@ export function LocationsModal({
   // header labels and the cells below them didn't line up. Fixed widths
   // give every row's grid the same track sizes regardless of what that row
   // happens to contain.
-  const tableGridCols = 'grid-cols-[1fr_1.6fr_6.5rem_15rem]';
+  const tableGridCols = 'grid-cols-[1fr_1.6fr_6.5rem_19rem]';
 
   function renderListBody() {
     const toolbar = (
@@ -453,6 +456,15 @@ export function LocationsModal({
                     <Pencil size={13} />
                     Edit
                   </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="px-2"
+                    onClick={() => setEditingLayoutLocation(location)}
+                  >
+                    <LayoutGrid size={13} />
+                    Layout
+                  </Button>
                   {location.isActive ? (
                     <Button
                       variant="secondary"
@@ -506,6 +518,7 @@ export function LocationsModal({
   const isDeactivating = pendingToggle?.kind === 'deactivate';
 
   return (
+    <>
     <Modal
       open={open}
       onOpenChange={onOpenChange}
@@ -664,5 +677,10 @@ export function LocationsModal({
         renderListBody()
       )}
     </Modal>
+    <TableLayoutEditorModal
+      location={editingLayoutLocation}
+      onClose={() => setEditingLayoutLocation(null)}
+    />
+    </>
   );
 }

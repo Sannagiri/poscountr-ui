@@ -1,3 +1,4 @@
+import type { ChangeEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { AlertCircle, Check, FileText, Loader2, Palette, ShieldCheck } from 'lucide-react';
@@ -21,10 +22,17 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 const EMPTY_INVOICE_VALUES: InvoiceSettingsFormValues = {
   numberingPrefix: '',
   numberingFormat: '',
+  numberingStart: '0001',
   headerNote: '',
   footerNote: '',
   showCustomerGstin: true,
+  paperWidth: '80mm',
 };
+
+const PAPER_WIDTH_OPTIONS = [
+  { value: '58mm', label: '58mm' },
+  { value: '80mm', label: '80mm' },
+];
 
 /** How long to let typing settle before autosaving a field change. */
 const AUTOSAVE_DEBOUNCE_MS = 700;
@@ -89,9 +97,11 @@ export function InvoiceSettingsPage() {
     const values: InvoiceSettingsFormValues = {
       numberingPrefix: invoiceSettingsQuery.data.numberingPrefix,
       numberingFormat: invoiceSettingsQuery.data.numberingFormat,
+      numberingStart: invoiceSettingsQuery.data.numberingStart,
       headerNote: invoiceSettingsQuery.data.headerNote,
       footerNote: invoiceSettingsQuery.data.footerNote,
       showCustomerGstin: invoiceSettingsQuery.data.showCustomerGstin,
+      paperWidth: invoiceSettingsQuery.data.paperWidth,
     };
     resetForm(values);
     lastSavedRef.current = JSON.stringify(values);
@@ -211,6 +221,37 @@ export function InvoiceSettingsPage() {
                   hint="Must include {seq}"
                   {...register('numberingFormat')}
                   errorMessage={errors.numberingFormat?.message}
+                />
+                <Input
+                  label="Starting number"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="0001"
+                  hint="Leading zeros set the padding width — e.g. 0001 → 4 digits"
+                  {...register('numberingStart', {
+                    // Plain type="text" (not type="number") so leading zeros can
+                    // actually be typed and the mouse scroll wheel never nudges
+                    // the value up/down while focused — sanitize to digits-only
+                    // here instead of relying on browser number-input coercion.
+                    onChange: (event: ChangeEvent<HTMLInputElement>) => {
+                      event.target.value = event.target.value.replace(/\D/g, '').slice(0, 10);
+                    },
+                  })}
+                  errorMessage={errors.numberingStart?.message}
+                />
+                <Controller
+                  control={control}
+                  name="paperWidth"
+                  render={({ field }) => (
+                    <Select
+                      label="Bill paper width"
+                      hint="Thermal/KOT printer roll width for the downloadable bill"
+                      value={field.value}
+                      onChange={field.onChange}
+                      options={PAPER_WIDTH_OPTIONS}
+                    />
+                  )}
                 />
               </div>
             </div>

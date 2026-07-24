@@ -25,11 +25,18 @@ function mapHsnLine(raw: InvoiceHsnLineRaw): InvoiceHsnLine {
   };
 }
 
-interface InvoiceRaw {
+export interface InvoiceRaw {
   id: string;
   order_id: string;
   business_id: string;
   location_id: string;
+  business_name: string;
+  business_gstin: string | null;
+  location_name: string;
+  location_address_line1: string;
+  location_address_line2: string;
+  location_city: string;
+  location_pincode: string;
   invoice_number: string;
   financial_year: string;
   sequence_number: number;
@@ -52,12 +59,19 @@ interface InvoiceRaw {
   hsn_summary: InvoiceHsnLineRaw[];
 }
 
-function mapInvoice(raw: InvoiceRaw): Invoice {
+export function mapInvoice(raw: InvoiceRaw): Invoice {
   return {
     id: raw.id,
     orderId: raw.order_id,
     businessId: raw.business_id,
     locationId: raw.location_id,
+    businessName: raw.business_name,
+    businessGstin: raw.business_gstin,
+    locationName: raw.location_name,
+    locationAddressLine1: raw.location_address_line1,
+    locationAddressLine2: raw.location_address_line2,
+    locationCity: raw.location_city,
+    locationPincode: raw.location_pincode,
     invoiceNumber: raw.invoice_number,
     financialYear: raw.financial_year,
     sequenceNumber: raw.sequence_number,

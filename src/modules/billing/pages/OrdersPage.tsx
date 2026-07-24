@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { FileText } from 'lucide-react';
 
 import type { DataTableColumn, DataTableFilter } from '@/components';
 import { Badge, Button, Card, DataTable, DatePicker, PageHeader, Select } from '@/components';
@@ -7,6 +8,7 @@ import { dateIST } from '@/utils/date';
 import { describeApiError } from '@/utils/errors';
 import { statusLabel, toneForStatus } from '@/utils/status';
 
+import { OrderBillPreviewModal } from '../components/OrderBillPreviewModal';
 import { BILLING_ROUTES, ORDER_TYPE_OPTIONS } from '../constants/billing.constants';
 import { useOrders } from '../hooks/useOrders';
 import type { Order, OrderStatus, OrderType } from '../types/billing.types';
@@ -71,6 +73,7 @@ function getOrderSearchValue(order: Order): string {
 export function OrdersPage() {
   const navigate = useNavigate();
   const ordersQuery = useOrders();
+  const [previewOrder, setPreviewOrder] = useState<Order | null>(null);
 
   const [datePreset, setDatePreset] = useState<DatePreset>('today');
   const [specificDate, setSpecificDate] = useState(() => dateIST());
@@ -154,6 +157,28 @@ export function OrdersPage() {
         width: '160px',
         render: (row) => new Date(row.createdAt).toLocaleString(),
       },
+      {
+        key: 'bill',
+        header: 'Bill',
+        width: '110px',
+        render: (row) => (
+          <Button
+            variant="ghost"
+            size="sm"
+            leadingIcon={<FileText size={14} />}
+            disabled={row.status !== 'completed'}
+            disabledReason={
+              row.status !== 'completed' ? 'Available once the order is completed' : undefined
+            }
+            onClick={(event) => {
+              event.stopPropagation();
+              setPreviewOrder(row);
+            }}
+          >
+            Preview
+          </Button>
+        ),
+      },
     ],
     [],
   );
@@ -207,6 +232,20 @@ export function OrdersPage() {
               <span className="text-xs text-ink-faint">
                 {new Date(row.createdAt).toLocaleString()}
               </span>
+              {row.status === 'completed' ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  leadingIcon={<FileText size={14} />}
+                  className="mt-1 self-start"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setPreviewOrder(row);
+                  }}
+                >
+                  Preview bill
+                </Button>
+              ) : null}
             </div>
           )}
           toolbarTrailing={
@@ -246,6 +285,8 @@ export function OrdersPage() {
           }
         />
       </Card>
+
+      <OrderBillPreviewModal order={previewOrder} onClose={() => setPreviewOrder(null)} />
     </div>
   );
 }

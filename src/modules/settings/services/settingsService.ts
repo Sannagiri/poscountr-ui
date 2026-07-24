@@ -40,11 +40,13 @@ interface InvoiceSettingsRaw {
   business_id: string;
   numbering_prefix: string;
   numbering_format: string;
+  numbering_start: string;
   logo_required: boolean;
   logo_url: string;
   header_note: string;
   footer_note: string;
   show_customer_gstin: boolean;
+  paper_width: InvoiceSettings['paperWidth'];
 }
 
 function mapInvoiceSettings(raw: InvoiceSettingsRaw): InvoiceSettings {
@@ -53,11 +55,13 @@ function mapInvoiceSettings(raw: InvoiceSettingsRaw): InvoiceSettings {
     businessId: raw.business_id,
     numberingPrefix: raw.numbering_prefix,
     numberingFormat: raw.numbering_format,
+    numberingStart: raw.numbering_start,
     logoRequired: raw.logo_required,
     logoUrl: raw.logo_url,
     headerNote: raw.header_note,
     footerNote: raw.footer_note,
     showCustomerGstin: raw.show_customer_gstin,
+    paperWidth: raw.paper_width,
   };
 }
 
@@ -65,10 +69,12 @@ function invoiceSettingsRequestToBody(request: InvoiceSettingsRequest) {
   return {
     numbering_prefix: request.numberingPrefix,
     numbering_format: request.numberingFormat,
+    numbering_start: request.numberingStart,
     logo_required: request.logoRequired,
     header_note: request.headerNote,
     footer_note: request.footerNote,
     show_customer_gstin: request.showCustomerGstin,
+    paper_width: request.paperWidth,
   };
 }
 
@@ -81,6 +87,7 @@ interface OrderSettingsRaw {
   customer_name_required: boolean;
   customer_phone_required: boolean;
   kitchen_enabled: boolean;
+  table_layout_enabled: boolean;
 }
 
 function mapOrderSettings(raw: OrderSettingsRaw): OrderSettings {
@@ -93,6 +100,7 @@ function mapOrderSettings(raw: OrderSettingsRaw): OrderSettings {
     customerNameRequired: raw.customer_name_required,
     customerPhoneRequired: raw.customer_phone_required,
     kitchenEnabled: raw.kitchen_enabled,
+    tableLayoutEnabled: raw.table_layout_enabled,
   };
 }
 
@@ -104,6 +112,7 @@ function orderSettingsRequestToBody(request: OrderSettingsRequest) {
     customer_name_required: request.customerNameRequired,
     customer_phone_required: request.customerPhoneRequired,
     kitchen_enabled: request.kitchenEnabled,
+    table_layout_enabled: request.tableLayoutEnabled,
   };
 }
 
@@ -148,6 +157,22 @@ export const settingsService = {
       apiClient.delete(`/tenant/businesses/${businessId}/invoice-settings/logo/`),
     );
     return mapInvoiceSettings(raw);
+  },
+
+  /**
+   * The logo's raw image bytes, proxied through this API rather than
+   * fetched from the public S3 URL directly — a cross-origin `fetch()` of
+   * that URL fails outright whenever the bucket has no CORS policy for this
+   * app's origin, which is exactly the case here. Only the client-rendered
+   * thermal bill (`thermalBillPdf.ts`) needs this; every other place that
+   * just *displays* the logo keeps using `logoUrl` directly in an `<img>`,
+   * which never needed CORS to begin with.
+   */
+  async getInvoiceLogoBlob(businessId: string): Promise<Blob> {
+    const response = await apiClient.get(`/tenant/businesses/${businessId}/invoice-settings/logo/file/`, {
+      responseType: 'blob',
+    });
+    return response.data as Blob;
   },
 
   async getOrderSettings(businessId: string): Promise<OrderSettings> {

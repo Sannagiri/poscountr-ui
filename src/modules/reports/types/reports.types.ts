@@ -31,6 +31,14 @@ export interface Invoice {
   orderId: string;
   businessId: string;
   locationId: string;
+  /** Denormalized from the business/location the invoice was generated for — lets the client-rendered bill PDF (`thermalBillPdf.ts`) skip a separate business/location fetch, which matters since those list endpoints are tenant_admin-only while invoice reads are tenant_admin-or-manager. */
+  businessName: string;
+  businessGstin: string | null;
+  locationName: string;
+  locationAddressLine1: string;
+  locationAddressLine2: string;
+  locationCity: string;
+  locationPincode: string;
   invoiceNumber: string;
   /** e.g. `'2026-27'`. */
   financialYear: string;

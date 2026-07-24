@@ -16,7 +16,7 @@ import type {
   StockAdjustFormValues,
   StockSetFormValues,
 } from '../../validations/inventory.validation';
-import { stockAdjustSchema, stockSetSchema } from '../../validations/inventory.validation';
+import { buildStockAdjustSchema, buildStockSetSchema } from '../../validations/inventory.validation';
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -54,8 +54,18 @@ export function StockModal({ product, onOpenChange }: StockModalProps) {
   const [targetLocationName, setTargetLocationName] = useState<string | undefined>(undefined);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const setForm = useForm<StockSetFormValues>({ resolver: zodResolver(stockSetSchema) });
-  const adjustForm = useForm<StockAdjustFormValues>({ resolver: zodResolver(stockAdjustSchema) });
+  // The resolver reads `product?.unit` fresh on every validation call rather
+  // than being rebuilt as a new `useForm` config — the unit is fixed for
+  // as long as the modal stays open for one product, but this avoids
+  // reconstructing the form (and losing in-progress input) if it weren't.
+  const setForm = useForm<StockSetFormValues>({
+    resolver: (values, context, options) =>
+      zodResolver(buildStockSetSchema(product?.unit ?? 'pcs'))(values, context, options),
+  });
+  const adjustForm = useForm<StockAdjustFormValues>({
+    resolver: (values, context, options) =>
+      zodResolver(buildStockAdjustSchema(product?.unit ?? 'pcs'))(values, context, options),
+  });
 
   const [wasOpen, setWasOpen] = useState(false);
   if (open !== wasOpen) {
@@ -180,7 +190,7 @@ export function StockModal({ product, onOpenChange }: StockModalProps) {
                 >
                   <div className="px-3 py-3 text-sm font-medium text-ink">{row.locationName}</div>
                   <div className="px-3 py-3 text-sm text-ink">
-                    {formatQuantity(row.quantity)}
+                    {formatQuantity(row.quantity, product?.unit)}
                     {isStockRowLow(row) ? (
                       <Badge tone="danger" className="ml-2">
                         Low
@@ -189,7 +199,7 @@ export function StockModal({ product, onOpenChange }: StockModalProps) {
                   </div>
                   <div className="px-3 py-3 text-sm text-ink-soft">
                     {Number(row.reorderLevel) > 0 ? (
-                      formatQuantity(row.reorderLevel)
+                      formatQuantity(row.reorderLevel, product?.unit)
                     ) : (
                       <span className="text-ink-faint">Not set</span>
                     )}

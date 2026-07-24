@@ -22,6 +22,11 @@ export const businessSchema = z.object({
       'Invalid GSTIN format (expected a 15-character GSTIN)',
     ),
   phone: z.string().optional().or(z.literal('')),
+  // Required before an invoice can ever be generated for this business (the
+  // CGST/SGST vs IGST split needs it) — see `InvoiceService.generate_from_order`
+  // — but still optional here, same as the backend's own `allow_blank=True`:
+  // a business can exist a while before its GST registration is finalized.
+  state: z.string().optional().or(z.literal('')),
 });
 
 export type BusinessFormValues = z.infer<typeof businessSchema>;

@@ -51,9 +51,15 @@ export const invoiceSettingsFormSchema = z.object({
     .min(1, 'Enter a numbering format')
     .max(40, 'At most 40 characters')
     .refine((value) => value.includes('{seq}'), 'Must include the {seq} placeholder'),
+  numberingStart: z
+    .string()
+    .min(1, 'Enter a starting number')
+    .max(10, 'At most 10 digits')
+    .regex(/^\d+$/, 'Digits only'),
   headerNote: z.string().max(255, 'At most 255 characters'),
   footerNote: z.string(),
   showCustomerGstin: z.boolean(),
+  paperWidth: z.enum(['58mm', '80mm']),
 });
 
 export type InvoiceSettingsFormValues = z.infer<typeof invoiceSettingsFormSchema>;
@@ -77,6 +83,7 @@ export const orderSettingsFormSchema = z
     customerNameRequired: z.boolean(),
     customerPhoneRequired: z.boolean(),
     kitchenEnabled: z.boolean(),
+    tableLayoutEnabled: z.boolean(),
   })
   .refine((values) => values.customerNameRequired || values.customerPhoneRequired, {
     message: 'At least one of customer name or phone must stay required',

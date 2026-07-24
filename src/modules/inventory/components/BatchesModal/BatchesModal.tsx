@@ -19,7 +19,7 @@ import { useProductBatches } from '../../hooks/useProductBatches';
 import { inventoryService } from '../../services/inventoryService';
 import type { Product } from '../../types/inventory.types';
 import type { BatchFormValues } from '../../validations/inventory.validation';
-import { batchSchema } from '../../validations/inventory.validation';
+import { buildBatchSchema } from '../../validations/inventory.validation';
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -75,7 +75,12 @@ export function BatchesModal({ product, onOpenChange }: BatchesModalProps) {
     handleSubmit,
     reset,
     formState: { errors },
-  } = useForm<BatchFormValues>({ resolver: zodResolver(batchSchema) });
+  } = useForm<BatchFormValues>({
+    // Reads `product?.unit` fresh on every validation call — see the same
+    // pattern (and why) in `StockModal`.
+    resolver: (values, context, options) =>
+      zodResolver(buildBatchSchema(product?.unit ?? 'pcs'))(values, context, options),
+  });
 
   const [wasOpen, setWasOpen] = useState(false);
   if (open !== wasOpen) {
@@ -211,7 +216,7 @@ export function BatchesModal({ product, onOpenChange }: BatchesModalProps) {
                       ) : null}
                     </div>
                     <div className="px-3 py-3 text-sm text-ink">
-                      {formatQuantity(batch.quantity)}
+                      {formatQuantity(batch.quantity, product?.unit)}
                     </div>
                     <div className="px-3 py-3 text-xs text-ink-soft">
                       {batch.mrp ? formatQuantity(batch.mrp) : '—'}

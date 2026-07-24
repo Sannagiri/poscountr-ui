@@ -25,6 +25,7 @@ interface BusinessEntityRaw {
   entity_type: EntityType;
   gstin: string | null;
   phone: string;
+  state: string;
   is_active: boolean;
   created_at: string;
 }
@@ -36,6 +37,7 @@ function mapBusiness(raw: BusinessEntityRaw): BusinessEntity {
     entityType: raw.entity_type,
     gstin: raw.gstin,
     phone: raw.phone,
+    state: raw.state,
     isActive: raw.is_active,
     createdAt: raw.created_at,
   };
@@ -48,6 +50,7 @@ function businessRequestToBody(request: Partial<BusinessEntityRequest>) {
     entity_type: request.entityType,
     gstin: request.gstin,
     phone: request.phone,
+    state: request.state,
   };
 }
 

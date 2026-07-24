@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ListOrdered, Trash2 } from 'lucide-react';
+import { Eye, ListOrdered, Trash2 } from 'lucide-react';
 
 import type { DataTableColumn, DataTableRowAction } from '@/components';
 import {
@@ -21,6 +21,7 @@ import { statusLabel, toneForStatus } from '@/utils/status';
 import { useAuthStore } from '@/modules/auth';
 import { useProducts } from '@/modules/inventory';
 
+import { OrderBillPreviewModal } from '../components/OrderBillPreviewModal';
 import {
   BILLING_QUERY_KEYS,
   BILLING_ROUTES,
@@ -31,6 +32,7 @@ import {
   TRANSITION_ACTION_LABELS,
 } from '../constants/billing.constants';
 import { useOrder } from '../hooks/useOrder';
+import { useOrderBill } from '../hooks/useOrderBill';
 import { billingService } from '../services/billingService';
 import type { OrderItem, OrderStatus } from '../types/billing.types';
 
@@ -80,8 +82,9 @@ function formatTimestamp(value: string): string {
  * non-food) + the acting user's role (confirmed via the F6 confirm-first
  * question as its own dedicated view, not a table row-actions menu — an
  * order is something you'd revisit and link to, unlike a quick-edit modal).
- * Items can only be added/removed while the order is still `pending` — the
- * backend rejects both endpoints otherwise.
+ * Items can only be added/removed before preparation starts (`pending` or,
+ * for a kitchen-enabled order, `kot_fired`) — the backend rejects both
+ * endpoints otherwise.
  */
 export function OrderDetailPage() {
   const { orderId } = useParams<{ orderId: string }>();
@@ -93,9 +96,11 @@ export function OrderDetailPage() {
   const orderQuery = useOrder(orderId);
   const productsQuery = useProducts();
   const order = orderQuery.data;
+  const { ensureBillDownloaded } = useOrderBill();
 
   const [addItemSearch, setAddItemSearch] = useState('');
   const [pendingCancel, setPendingCancel] = useState(false);
+  const [showBillPreview, setShowBillPreview] = useState(false);
 
   const isFoodFlow = order?.kitchenEnabled ?? false;
 
@@ -107,10 +112,21 @@ export function OrderDetailPage() {
   const transitionMutation = useMutation({
     mutationFn: (target: Exclude<OrderStatus, 'pending'>) =>
       TARGET_TO_SERVICE_CALL[target](orderId as string),
-    onSuccess: ({ warning }) => {
+    onSuccess: ({ order: updatedOrder, warning, invoice }, target) => {
       invalidateOrder();
       setPendingCancel(false);
       showToast({ tone: warning ? 'warning' : 'success', message: warning ?? 'Order updated.' });
+      // Fire-and-forget — the order is already completed regardless of
+      // whether the bill renders/uploads successfully, so a failure here
+      // gets its own toast rather than looking like the completion failed.
+      if (target === 'completed') {
+        ensureBillDownloaded(updatedOrder, invoice).catch((error) =>
+          showToast({
+            tone: 'warning',
+            message: `Bill not saved yet. (${describeApiError(error)})`,
+          }),
+        );
+      }
     },
     onError: (error) => {
       showToast({ tone: 'danger', message: describeApiError(error) });
@@ -186,7 +202,11 @@ export function OrderDetailPage() {
     );
   }
 
-  const isPending = order.status === 'pending';
+  // Editable up to (and including) the kitchen receiving the ticket, but not
+  // once prep has actually started — mirrors the backend's
+  // OrderService._assert_editable. A non-food order never reaches
+  // kot_fired at all, so for that flow this is equivalent to "pending only".
+  const canEditItems = order.status === 'pending' || order.status === 'kot_fired';
   const nextTarget = nextStatusFor(order.status, isFoodFlow);
   const mayCancel = canCancel(order.status, isFoodFlow);
   const role = currentUser?.role;
@@ -268,11 +288,11 @@ export function OrderDetailPage() {
               getSearchValue={(item) => item.name}
               searchPlaceholder="Search items…"
               emptyTitle="No items on this order yet"
-              rowActions={isPending ? getItemRowActions : undefined}
-              minBodyHeight={200}
+              rowActions={canEditItems ? getItemRowActions : undefined}
+              maxBodyHeight={320}
             />
 
-            {isPending ? (
+            {canEditItems ? (
               <div className="mt-4 border-t border-border pt-4">
                 <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
                   Add a product
@@ -317,6 +337,46 @@ export function OrderDetailPage() {
         </div>
 
         <div className="flex flex-col gap-4">
+          {mayAdvance || mayCancelWithRole || order.status === 'completed' ? (
+            <Card>
+              <div className="flex flex-col gap-2">
+                {mayAdvance && nextTarget ? (
+                  <Button
+                    isLoading={
+                      transitionMutation.isPending && transitionMutation.variables === nextTarget
+                    }
+                    disabled={transitionMutation.isPending}
+                    onClick={() => transitionMutation.mutate(nextTarget)}
+                  >
+                    {TRANSITION_ACTION_LABELS[nextTarget]}
+                  </Button>
+                ) : null}
+                {/* The order is "locked" — no more status transitions — the
+                    moment it's completed, which is also the only status the
+                    backend allows generating an invoice for (any type: dine-in,
+                    takeaway, delivery alike), so Preview bill appears here too. */}
+                {order.status === 'completed' ? (
+                  <Button
+                    variant="secondary"
+                    leadingIcon={<Eye size={16} />}
+                    onClick={() => setShowBillPreview(true)}
+                  >
+                    Preview bill
+                  </Button>
+                ) : null}
+                {mayCancelWithRole ? (
+                  <Button
+                    variant="secondary"
+                    disabled={transitionMutation.isPending}
+                    onClick={() => setPendingCancel(true)}
+                  >
+                    Cancel order
+                  </Button>
+                ) : null}
+              </div>
+            </Card>
+          ) : null}
+
           <Card>
             <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">Totals</p>
             <div className="flex flex-col gap-1.5 text-sm">
@@ -409,35 +469,6 @@ export function OrderDetailPage() {
             </Card>
           ) : null}
 
-          {mayAdvance || mayCancelWithRole ? (
-            <Card>
-              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                Actions
-              </p>
-              <div className="flex flex-col gap-2">
-                {mayAdvance && nextTarget ? (
-                  <Button
-                    isLoading={
-                      transitionMutation.isPending && transitionMutation.variables === nextTarget
-                    }
-                    disabled={transitionMutation.isPending}
-                    onClick={() => transitionMutation.mutate(nextTarget)}
-                  >
-                    {TRANSITION_ACTION_LABELS[nextTarget]}
-                  </Button>
-                ) : null}
-                {mayCancelWithRole ? (
-                  <Button
-                    variant="secondary"
-                    disabled={transitionMutation.isPending}
-                    onClick={() => setPendingCancel(true)}
-                  >
-                    Cancel order
-                  </Button>
-                ) : null}
-              </div>
-            </Card>
-          ) : null}
         </div>
       </div>
 
@@ -450,6 +481,11 @@ export function OrderDetailPage() {
         isLoading={transitionMutation.isPending && transitionMutation.variables === 'cancelled'}
         onConfirm={() => transitionMutation.mutate('cancelled')}
         onCancel={() => setPendingCancel(false)}
+      />
+
+      <OrderBillPreviewModal
+        order={showBillPreview ? order : null}
+        onClose={() => setShowBillPreview(false)}
       />
     </div>
   );

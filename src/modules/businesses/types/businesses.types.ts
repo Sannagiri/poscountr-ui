@@ -9,6 +9,9 @@
 
 export type EntityType = 'restaurant' | 'retail' | 'pharmacy' | 'grocery' | 'cafe' | 'other';
 
+/** Mirrors `apps/businesses/constants.py`'s `IndianState` — 2-letter state/UT abbreviation. */
+export type IndianState = string;
+
 /** One business (operating entity) under the tenant. */
 export interface BusinessEntity {
   id: string;
@@ -17,6 +20,8 @@ export interface BusinessEntity {
   /** 15-char GSTIN, or `null` when not set — optional on the backend. */
   gstin: string | null;
   phone: string;
+  /** The state this business is GST-registered in — required before an invoice can be generated for any of its orders (drives the CGST/SGST vs IGST split). `''` when not yet set. */
+  state: IndianState | '';
   isActive: boolean;
   createdAt: string;
 }
@@ -27,10 +32,8 @@ export interface BusinessEntityRequest {
   entityType: EntityType;
   gstin?: string;
   phone?: string;
+  state?: IndianState | '';
 }
-
-/** Mirrors `apps/businesses/constants.py`'s `IndianState` — 2-letter state/UT abbreviation. */
-export type IndianState = string;
 
 /**
  * A physical outlet of a `BusinessEntity`. The address is structured (not one

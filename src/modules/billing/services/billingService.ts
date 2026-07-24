@@ -1,5 +1,13 @@
 import { apiClient, unwrap, unwrapWithMeta } from '@/services/apiClient';
 
+import type { InvoiceRaw } from '@/modules/reports/services/reportsService';
+// Imported from the concrete file, not the `@/modules/reports` barrel — that
+// barrel re-exports `ReportsPage`, which imports `@/modules/billing`'s own
+// barrel, and going through both here would create a billing <-> reports
+// circular import at module-init time.
+import { mapInvoice } from '@/modules/reports/services/reportsService';
+import type { Invoice } from '@/modules/reports/types/reports.types';
+
 import type {
   KdsItem,
   KdsOrder,
@@ -53,6 +61,7 @@ interface OrderRaw {
   order_type: OrderType;
   order_number: string | null;
   kitchen_enabled: boolean;
+  table_id: string | null;
   table_number: string;
   token_number: number | null;
   token_date: string | null;
@@ -85,6 +94,7 @@ function mapOrder(raw: OrderRaw): Order {
     orderType: raw.order_type,
     orderNumber: raw.order_number,
     kitchenEnabled: raw.kitchen_enabled,
+    tableId: raw.table_id,
     tableNumber: raw.table_number,
     tokenNumber: raw.token_number,
     tokenDate: raw.token_date,
@@ -113,6 +123,7 @@ function orderCreateRequestToBody(request: OrderCreateRequest) {
     business_id: request.businessId,
     location_id: request.locationId,
     order_type: request.orderType,
+    table_id: request.tableId,
     table_number: request.tableNumber,
     note: request.note,
     idempotency_key: request.idempotencyKey,
@@ -160,17 +171,29 @@ function mapKdsOrder(raw: KdsOrderRaw): KdsOrder {
   };
 }
 
-/** A completed transition's response — `warning` only ever comes back non-null from `complete()` (the lenient monthly-transaction-quota check). */
+/**
+ * A completed transition's response — `warning` only ever comes back
+ * non-null from `complete()` (the lenient monthly-transaction-quota check,
+ * or a bill-generation failure folded into the same message). `invoice` is
+ * also `complete()`-only: the GST invoice `OrderCompleteView` auto-generates
+ * for the just-completed order, still with an empty `pdfUrl` until the
+ * frontend renders + uploads the actual PDF (see `useOrderBill`).
+ */
 interface TransitionResult {
   order: Order;
   warning: string | null;
+  invoice: Invoice | null;
 }
 
 async function transition(orderId: string, path: string): Promise<TransitionResult> {
   const { data, meta } = await unwrapWithMeta<OrderRaw>(
     apiClient.post(`/tenant/orders/${orderId}/${path}/`),
   );
-  return { order: mapOrder(data), warning: (meta?.warning as string) ?? null };
+  return {
+    order: mapOrder(data),
+    warning: (meta?.warning as string) ?? null,
+    invoice: meta?.invoice ? mapInvoice(meta.invoice as InvoiceRaw) : null,
+  };
 }
 
 export const billingService = {

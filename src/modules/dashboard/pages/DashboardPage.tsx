@@ -22,7 +22,7 @@ import { statusLabel, toneForStatus } from '@/utils/status';
 import { useAuthStore } from '@/modules/auth';
 import type { Order } from '@/modules/billing';
 import { BILLING_ROUTES, KDS_LATE_THRESHOLD_MINUTES, useOrders } from '@/modules/billing';
-import type { Product, ProductStockRow } from '@/modules/inventory';
+import type { Product, ProductStockRow, Unit } from '@/modules/inventory';
 import { formatQuantity, INVENTORY_ROUTES, isStockRowLow, useProducts } from '@/modules/inventory';
 
 /** A ticket is "on the kitchen board" in exactly these three statuses — mirrors the KDS's own scope (`KDSListView` only ever returns orders in this range) without needing a per-location `useKdsQueue()` call, which 400s for a tenant_admin with no single location to scope to. */
@@ -307,7 +307,7 @@ const lowStockColumns: MiniColumn<LowStockEntry>[] = [
     key: 'stock',
     header: 'Stock',
     width: '80px',
-    render: (entry) => formatQuantity(entry.stockRow.quantity),
+    render: (entry) => formatQuantity(entry.stockRow.quantity, entry.product.unit),
   },
   {
     key: 'status',
@@ -407,17 +407,24 @@ export function DashboardPage() {
     };
     for (const order of todaysOrders) orderTypeBreakdown[order.orderType] += 1;
 
+    const unitByProductId = new Map(products.map((product) => [product.id, product.unit]));
+
     // Units sold today, by product — cancelled orders never rang up a real
     // sale, so they're excluded (everything else, including still-open
     // orders, counts what's actually gone out the door or is about to).
-    const sellerTotals = new Map<string, { name: string; quantity: number }>();
+    const sellerTotals = new Map<string, { name: string; quantity: number; unit?: Unit }>();
     for (const order of todaysOrders) {
       if (order.status === 'cancelled') continue;
       for (const item of order.items) {
         const existing = sellerTotals.get(item.productId);
         const quantity = Number(item.quantity);
         if (existing) existing.quantity += quantity;
-        else sellerTotals.set(item.productId, { name: item.name, quantity });
+        else
+          sellerTotals.set(item.productId, {
+            name: item.name,
+            quantity,
+            unit: unitByProductId.get(item.productId),
+          });
       }
     }
     const topSellers = Array.from(sellerTotals.values()).sort((a, b) => b.quantity - a.quantity);
@@ -678,7 +685,7 @@ export function DashboardPage() {
                     <span className="truncate font-medium text-ink-soft">{seller.name}</span>
                   </span>
                   <span className="shrink-0 text-xl font-bold text-ink">
-                    {formatQuantity(String(seller.quantity))}
+                    {formatQuantity(String(seller.quantity), seller.unit)}
                   </span>
                 </li>
               ))}

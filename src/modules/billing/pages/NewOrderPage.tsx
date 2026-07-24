@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
-import { ListOrdered, Minus, Plus, Trash2 } from 'lucide-react';
+import { ListOrdered, MapPin, Minus, Plus, Trash2 } from 'lucide-react';
 
 import {
   Button,
@@ -17,6 +17,7 @@ import {
 import { useFillRemainingHeight } from '@/hooks/useFillRemainingHeight';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { describeApiError } from '@/utils/errors';
+import { getSessionMemory, setSessionMemory } from '@/utils/sessionMemory';
 import { breakpoints } from '@/styles/breakpoints';
 
 import { useAuthStore } from '@/modules/auth';
@@ -24,6 +25,8 @@ import { useBusinesses, useLocations } from '@/modules/businesses';
 import type { Product } from '@/modules/inventory';
 import { useProducts } from '@/modules/inventory';
 import { useOrderSettings } from '@/modules/settings';
+import type { Table } from '@/modules/tables';
+import { TableSelectScreen } from '@/modules/tables';
 
 import { BILLING_ROUTES, ORDER_TYPE_OPTIONS } from '../constants/billing.constants';
 import { useAutoSelectSingle } from '../hooks/useAutoSelectSingle';
@@ -39,6 +42,16 @@ interface CartLine {
   product: Product;
   quantity: number;
 }
+
+/**
+ * Remembers the business/location/order-type picks across navigating away
+ * from and back to this page (e.g. checking the Orders list mid-sale) — not
+ * the cart or customer name/phone, which shouldn't carry over into an
+ * unrelated order. Resets on an actual browser reload, same as
+ * `DataTable`'s persisted filters — see `sessionMemory`'s doc comment.
+ */
+const NEW_ORDER_SELECTION_KEY = 'newOrder:selection';
+type NewOrderSelection = Pick<OrderCreateFormValues, 'businessId' | 'locationId' | 'orderType'>;
 
 /**
  * UI-only for now — the backend has no payment-method/amount-tendered field
@@ -169,14 +182,29 @@ export function NewOrderPage() {
           requiredFieldsRef.current.phoneRequired,
         ),
       )(values, context, options),
-    defaultValues: { orderType: 'takeaway', businessId: '', locationId: '' },
+    defaultValues: {
+      orderType: 'takeaway',
+      businessId: '',
+      locationId: '',
+      ...getSessionMemory<NewOrderSelection>(NEW_ORDER_SELECTION_KEY),
+    },
   });
 
   const selectedBusinessId = watch('businessId');
+  const selectedLocationId = watch('locationId');
+  const orderType = watch('orderType');
   // Table number is a dine-in concept, not a kitchen one — a takeaway/delivery
   // order never has a table, and a business without a kitchen can still seat
   // dine-in customers (e.g. a retail counter with a small seating area).
-  const isDineIn = watch('orderType') === 'dine_in';
+  const isDineIn = orderType === 'dine_in';
+
+  useEffect(() => {
+    setSessionMemory<NewOrderSelection>(NEW_ORDER_SELECTION_KEY, {
+      businessId: selectedBusinessId,
+      locationId: selectedLocationId,
+      orderType,
+    });
+  }, [selectedBusinessId, selectedLocationId, orderType]);
 
   const businessOptions = useMemo(
     () =>
@@ -204,7 +232,7 @@ export function NewOrderPage() {
   // the business/location pickers when there's exactly one option — a
   // tenant_admin with a single business/location never has to touch these.
   useAutoSelectSingle(businessesQuery.data, selectedBusinessId, (id) => setValue('businessId', id));
-  useAutoSelectSingle(filteredLocations, watch('locationId'), (id) => setValue('locationId', id));
+  useAutoSelectSingle(filteredLocations, selectedLocationId, (id) => setValue('locationId', id));
 
   // Clear a stray table number left over from a previous dine-in selection —
   // otherwise it'd still submit (and later display) on a takeaway/delivery
@@ -223,10 +251,30 @@ export function NewOrderPage() {
   );
   const nameRequired = isTenantAdmin ? (orderSettingsQuery.data?.customerNameRequired ?? true) : true;
   const phoneRequired = isTenantAdmin ? (orderSettingsQuery.data?.customerPhoneRequired ?? true) : true;
+  // Same tenant_admin-only gating as name/phone-required above, for the
+  // same reason — a manager's business isn't resolvable on this page yet.
+  // A manager therefore always sees the classic flow, same limitation the
+  // codebase already accepted for the other two settings.
+  const tableLayoutEnabled = isTenantAdmin
+    ? (orderSettingsQuery.data?.tableLayoutEnabled ?? false)
+    : false;
 
   useEffect(() => {
     requiredFieldsRef.current = { nameRequired, phoneRequired };
   }, [nameRequired, phoneRequired]);
+
+  // The table chosen on `TableSelectScreen` — `null` means either the
+  // classic flow, or table-first mode still waiting on a pick. Cleared
+  // whenever the resolved location changes so a stale table from a
+  // previous location can never carry into this one.
+  const [selectedTable, setSelectedTable] = useState<Table | null>(null);
+  useEffect(() => {
+    setSelectedTable(null);
+  }, [selectedLocationId]);
+
+  useEffect(() => {
+    if (selectedTable) setValue('orderType', 'dine_in');
+  }, [selectedTable, setValue]);
 
   const availableProducts = useMemo(() => {
     let products = productsQuery.data ?? [];
@@ -299,6 +347,9 @@ export function NewOrderPage() {
     setAmountTendered('');
     setCart({});
     setProductSearch('');
+    // Table-first mode sends the cashier back to the floor plan for the
+    // next walk-in rather than reusing the same table's cart.
+    setSelectedTable(null);
     // Keep the business/location the cashier already had selected — only
     // the customer-specific fields need to clear for the next walk-in order.
     reset({
@@ -317,6 +368,7 @@ export function NewOrderPage() {
         businessId: values.businessId || undefined,
         locationId: values.locationId || undefined,
         orderType: values.orderType,
+        tableId: selectedTable?.id,
         tableNumber: values.tableNumber || undefined,
         customerName: values.customerName,
         customerPhone: values.customerPhone,
@@ -399,52 +451,71 @@ export function NewOrderPage() {
       <form
         id="new-order-form"
         onSubmit={handleSubmit((values) => createMutation.mutate(values))}
-        className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+        className="flex flex-col gap-4"
       >
-        <div className="flex min-w-0 flex-col gap-4">
-          {isTenantAdmin && (businessOptions.length > 1 || locationOptions.length > 1) ? (
-            <Card>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {businessOptions.length > 1 ? (
-                  <Controller
-                    name="businessId"
-                    control={control}
-                    render={({ field }) => (
-                      <Select
-                        label="Business"
-                        placeholder="Select a business"
-                        options={businessOptions}
-                        value={field.value}
-                        onChange={field.onChange}
-                        onBlur={field.onBlur}
-                        name={field.name}
-                        disabled={businessesQuery.isLoading}
-                      />
-                    )}
-                  />
-                ) : null}
-                {locationOptions.length > 1 ? (
-                  <Controller
-                    name="locationId"
-                    control={control}
-                    render={({ field }) => (
-                      <Select
-                        label="Location"
-                        placeholder="Select a location"
-                        options={locationOptions}
-                        value={field.value}
-                        onChange={field.onChange}
-                        onBlur={field.onBlur}
-                        name={field.name}
-                        disabled={!selectedBusinessId}
-                      />
-                    )}
-                  />
-                ) : null}
-              </div>
-            </Card>
-          ) : null}
+        {isTenantAdmin && (businessOptions.length > 1 || locationOptions.length > 1) ? (
+          <Card>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {businessOptions.length > 1 ? (
+                <Controller
+                  name="businessId"
+                  control={control}
+                  render={({ field }) => (
+                    <Select
+                      label="Business"
+                      placeholder="Select a business"
+                      options={businessOptions}
+                      value={field.value}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      name={field.name}
+                      disabled={businessesQuery.isLoading}
+                    />
+                  )}
+                />
+              ) : null}
+              {locationOptions.length > 1 ? (
+                <Controller
+                  name="locationId"
+                  control={control}
+                  render={({ field }) => (
+                    <Select
+                      label="Location"
+                      placeholder="Select a location"
+                      options={locationOptions}
+                      value={field.value}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      name={field.name}
+                      disabled={!selectedBusinessId}
+                    />
+                  )}
+                />
+              ) : null}
+            </div>
+          </Card>
+        ) : null}
 
+        {tableLayoutEnabled && !selectedTable ? (
+          selectedLocationId ? (
+            <TableSelectScreen
+              locationId={selectedLocationId}
+              onSelectFreeTable={setSelectedTable}
+              onSelectOccupiedTable={(table) => {
+                if (table.currentOrder) navigate(BILLING_ROUTES.orderDetail(table.currentOrder.id));
+              }}
+            />
+          ) : (
+            <Card>
+              <EmptyState
+                title="Select a business/location"
+                description="Pick a business and location above to see its floor plan."
+              />
+            </Card>
+          )
+        ) : (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="flex min-w-0 flex-col gap-4">
           <Card className="flex min-h-0 flex-1 flex-col">
             {/* Plain block wrapper, not a flex item — `SearchInput`'s own
                 root div ships `flex-1` for its usual row layouts, and inside
@@ -585,25 +656,42 @@ export function NewOrderPage() {
                   errorMessage={errors.customerPhone?.message}
                 />
               </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Controller
-                  name="orderType"
-                  control={control}
-                  render={({ field }) => (
-                    <Select
-                      label="Order type"
-                      options={ORDER_TYPE_OPTIONS}
-                      value={field.value}
-                      onChange={field.onChange}
-                      onBlur={field.onBlur}
-                      name={field.name}
-                    />
-                  )}
-                />
-                {isDineIn ? (
-                  <Input label="Table number (optional)" {...register('tableNumber')} />
-                ) : null}
-              </div>
+              {selectedTable ? (
+                <div className="flex items-center justify-between gap-3 rounded-control border border-border bg-surface/60 p-3">
+                  <span className="flex items-center gap-2 text-sm font-medium text-ink">
+                    <MapPin size={15} className="text-brand" />
+                    Dine-in · Table {selectedTable.name}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setSelectedTable(null)}
+                  >
+                    Change table
+                  </Button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Controller
+                    name="orderType"
+                    control={control}
+                    render={({ field }) => (
+                      <Select
+                        label="Order type"
+                        options={ORDER_TYPE_OPTIONS}
+                        value={field.value}
+                        onChange={field.onChange}
+                        onBlur={field.onBlur}
+                        name={field.name}
+                      />
+                    )}
+                  />
+                  {isDineIn ? (
+                    <Input label="Table number (optional)" {...register('tableNumber')} />
+                  ) : null}
+                </div>
+              )}
             </div>
           </Card>
 
@@ -629,6 +717,8 @@ export function NewOrderPage() {
             </Button>
           </div>
         </div>
+        </div>
+        )}
       </form>
 
       <Modal

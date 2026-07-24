@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { MoreVertical } from 'lucide-react';
 
 import { Button } from '@/components/Button';
@@ -15,6 +16,7 @@ import { useInfiniteReveal } from '@/hooks/useInfiniteReveal';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { cn } from '@/utils/cn';
 import { applyFilterValues, filterBySearch, hasActiveListFilters } from '@/utils/listFilter';
+import { getSessionMemory, setSessionMemory } from '@/utils/sessionMemory';
 import { breakpoints } from '@/styles/breakpoints';
 
 import type {
@@ -44,6 +46,13 @@ export interface DataTableProps<TRow> {
    */
   getSearchValue?: (row: TRow) => string;
   searchPlaceholder?: string;
+  /**
+   * Disambiguates persisted search/filter state (see below) when a single
+   * route renders more than one `DataTable` — otherwise unnecessary, since
+   * the default key (the current pathname) already scopes state correctly
+   * for the common one-table-per-page case.
+   */
+  persistKey?: string;
   /** Column filter dropdowns, rendered next to the search box. Client-side, same caveat as search. */
   filters?: DataTableFilter<TRow>[];
   /**
@@ -75,8 +84,18 @@ export interface DataTableProps<TRow> {
   rowActions?: (row: TRow) => DataTableRowAction<TRow>[];
   /** How many rows to render initially and per additional batch while scrolling. Default 25. */
   batchSize?: number;
-  /** Never shrinks the row area below this many pixels, even on a very short viewport. Default 240. */
+  /** Never shrinks the row area below this many pixels, even on a very short viewport. Default 240. Ignored when `maxBodyHeight` is set. */
   minBodyHeight?: number;
+  /**
+   * Caps the row area's height instead of filling to the viewport bottom —
+   * the box then sizes to its actual content (however many rows that is)
+   * and only scrolls once content exceeds this cap. Use this for a table
+   * embedded among other cards on a detail page (e.g. `OrderDetailPage`'s
+   * item list), where the default fill-to-viewport-bottom behavior leaves a
+   * wall of empty space under a short list. Omit to keep the default —
+   * every existing caller's current behavior — unchanged.
+   */
+  maxBodyHeight?: number;
   /**
    * Opt-in mobile layout: below `md`, renders one of these per row (in a
    * plain page-scrolling list, not the fixed-height grid table) instead of
@@ -136,12 +155,28 @@ export function DataTable<TRow>({
   rowActions,
   batchSize = DEFAULT_BATCH_SIZE,
   minBodyHeight = 240,
+  maxBodyHeight,
   mobileCard,
+  persistKey,
 }: DataTableProps<TRow>) {
-  const isNarrowViewport = useMediaQuery(`(max-width: ${breakpoints.md - 1}px)`);
+  // `lg`, not `md` — a tablet-width screen (e.g. iPad portrait, ~768–1024px)
+  // has just as little room for a wide multi-column grid as a phone does, so
+  // it gets the same card layout rather than a cramped/overflowing table.
+  const isNarrowViewport = useMediaQuery(`(max-width: ${breakpoints.lg - 1}px)`);
   const showMobileCards = Boolean(mobileCard) && isNarrowViewport;
 
-  const [searchTerm, setSearchTerm] = useState('');
+  // Search/filter state survives navigating away and back (e.g. Orders →
+  // an order's detail page → back to Orders) via `sessionMemory` — an
+  // in-memory store keyed by route, not `localStorage`, so it resets on an
+  // actual browser reload rather than sticking around forever. Keyed off
+  // the pathname by default so every page gets this for free; `persistKey`
+  // only needed when one route renders more than one `DataTable`.
+  const location = useLocation();
+  const storageKey = `datatable:${persistKey ?? location.pathname}`;
+
+  const [searchTerm, setSearchTerm] = useState(
+    () => getSessionMemory<string>(`${storageKey}:search`) ?? '',
+  );
   // A filter with its own `defaultValue` (e.g. Status → "Active") starts
   // there instead of "All ___" — see `DataTableFilter.defaultValue`'s doc
   // comment. Recomputed from `filters` rather than frozen at mount so a
@@ -156,10 +191,23 @@ export function DataTable<TRow>({
       ),
     [filters],
   );
-  const [filterValues, setFilterValues] = useState<Record<string, string>>(defaultFilterValues);
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(
+    () => getSessionMemory<Record<string, string>>(`${storageKey}:filters`) ?? defaultFilterValues,
+  );
+
+  useEffect(() => {
+    setSessionMemory(`${storageKey}:search`, searchTerm);
+  }, [storageKey, searchTerm]);
+
+  useEffect(() => {
+    setSessionMemory(`${storageKey}:filters`, filterValues);
+  }, [storageKey, filterValues]);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const bodyHeight = useFillRemainingHeight(scrollContainerRef, { minHeight: minBodyHeight });
+  // Always called (Rules of Hooks) even in `maxBodyHeight` mode, where its
+  // result goes unused — the alternative (a fixed height) is exactly what
+  // `maxBodyHeight` mode replaces with content-driven `max-height` instead.
+  const fillHeight = useFillRemainingHeight(scrollContainerRef, { minHeight: minBodyHeight });
 
   const leadingTrackWidth = selectable ? '40px' : null;
   const trailingTrackWidth = rowActions ? '48px' : null;
@@ -372,7 +420,7 @@ export function DataTable<TRow>({
         <div
           ref={scrollContainerRef}
           className="scrollbar-thin overflow-auto rounded-control border border-border"
-          style={{ height: bodyHeight }}
+          style={maxBodyHeight != null ? { maxHeight: maxBodyHeight } : { height: fillHeight }}
         >
         <div role="table" className="w-full text-sm">
           <div role="rowgroup" className="sticky top-0 z-10 rounded-t-control bg-surface">
