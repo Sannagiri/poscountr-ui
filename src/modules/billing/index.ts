@@ -1,4 +1,8 @@
-export { BILLING_ROUTES, KDS_LATE_THRESHOLD_MINUTES } from './constants/billing.constants';
+export {
+  BILLING_ROUTES,
+  KDS_LATE_THRESHOLD_MINUTES,
+  PAYMENT_METHOD_OPTIONS,
+} from './constants/billing.constants';
 export { useKdsQueue } from './hooks/useKdsQueue';
 export { useOrder } from './hooks/useOrder';
 export { useOrders } from './hooks/useOrders';
@@ -16,4 +20,5 @@ export type {
   OrderItemRequest,
   OrderStatus,
   OrderType,
+  PaymentMethod,
 } from './types/billing.types';

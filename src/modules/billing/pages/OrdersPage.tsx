@@ -4,7 +4,7 @@ import { FileText } from 'lucide-react';
 
 import type { DataTableColumn, DataTableFilter } from '@/components';
 import { Badge, Button, Card, DataTable, DatePicker, PageHeader, Select } from '@/components';
-import { dateIST } from '@/utils/date';
+import { dateIST, formatTimestamp } from '@/utils/date';
 import { describeApiError } from '@/utils/errors';
 import { statusLabel, toneForStatus } from '@/utils/status';
 
@@ -154,8 +154,8 @@ export function OrdersPage() {
       {
         key: 'createdAt',
         header: 'Created',
-        width: '160px',
-        render: (row) => new Date(row.createdAt).toLocaleString(),
+        width: '180px',
+        render: (row) => formatTimestamp(row.createdAt),
       },
       {
         key: 'bill',
@@ -229,9 +229,7 @@ export function OrdersPage() {
                 </span>
                 <span className="shrink-0 font-semibold text-ink">₹{row.total}</span>
               </div>
-              <span className="text-xs text-ink-faint">
-                {new Date(row.createdAt).toLocaleString()}
-              </span>
+              <span className="text-xs text-ink-faint">{formatTimestamp(row.createdAt)}</span>
               {row.status === 'completed' ? (
                 <Button
                   variant="ghost"

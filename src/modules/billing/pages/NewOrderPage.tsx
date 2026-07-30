@@ -28,10 +28,10 @@ import { useOrderSettings } from '@/modules/settings';
 import type { Table } from '@/modules/tables';
 import { TableSelectScreen } from '@/modules/tables';
 
-import { BILLING_ROUTES, ORDER_TYPE_OPTIONS } from '../constants/billing.constants';
+import { BILLING_ROUTES, ORDER_TYPE_OPTIONS, PAYMENT_METHOD_OPTIONS } from '../constants/billing.constants';
 import { useAutoSelectSingle } from '../hooks/useAutoSelectSingle';
 import { billingService } from '../services/billingService';
-import type { Order, OrderStatus } from '../types/billing.types';
+import type { Order, OrderStatus, PaymentMethod } from '../types/billing.types';
 import type { OrderCreateFormValues } from '../validations/billing.validation';
 import { buildOrderCreateSchema } from '../validations/billing.validation';
 
@@ -41,6 +41,8 @@ import { useMutation } from '@tanstack/react-query';
 interface CartLine {
   product: Product;
   quantity: number;
+  /** This line's own discount (0-100), layered under the order-level discount below — set inline in the cart, defaults to 0. */
+  discountPercent: number;
 }
 
 /**
@@ -53,29 +55,15 @@ interface CartLine {
 const NEW_ORDER_SELECTION_KEY = 'newOrder:selection';
 type NewOrderSelection = Pick<OrderCreateFormValues, 'businessId' | 'locationId' | 'orderType'>;
 
-/**
- * UI-only for now — the backend has no payment-method/amount-tendered field
- * anywhere on `Order` yet (see `billing.types.ts`), so this step just drives
- * the existing `complete` transition; it doesn't persist the method/amount
- * anywhere. Placeholder until the payment concept gets a real schema.
- */
-const PAYMENT_METHOD_OPTIONS = [
-  { value: 'cash', label: 'Cash' },
-  { value: 'card', label: 'Card' },
-  { value: 'upi', label: 'UPI' },
-] as const;
-type PaymentMethod = (typeof PAYMENT_METHOD_OPTIONS)[number]['value'];
-
-/** Maps a transition target to the `billingService` call that drives it — same shape `OrderDetailPage` uses. */
+/** Maps a transition target to the `billingService` call that drives it — same shape `OrderDetailPage` uses. `completed` is handled separately in `advanceOrder` since it's the one transition that needs a payment method. */
 const TARGET_TO_SERVICE_CALL: Record<
-  Exclude<OrderStatus, 'pending'>,
+  Exclude<OrderStatus, 'pending' | 'completed'>,
   (orderId: string) => ReturnType<typeof billingService.fireKot>
 > = {
   kot_fired: billingService.fireKot,
   preparing: billingService.setPreparing,
   ready: billingService.setReady,
   delivered: billingService.deliver,
-  completed: billingService.complete,
   cancelled: billingService.cancel,
 };
 
@@ -104,18 +92,43 @@ const COMPLETED_NONFOOD_CHAIN: Exclude<OrderStatus, 'pending'>[] = ['completed']
  * status, just back-to-back instead of waiting on the KDS. Returns the last
  * transition's result, since only the final target in a chain can carry the
  * `complete`-only monthly-quota warning.
+ *
+ * `completed` is handled separately from the rest of the chain — it's the
+ * one transition that takes a payment method, so `completion` must be
+ * supplied whenever the chain includes it. Discounts are no longer part of
+ * completion — they're set earlier, while the order/cart is being built.
  */
-async function advanceOrder(orderId: string, chain: Exclude<OrderStatus, 'pending'>[]) {
+async function advanceOrder(
+  orderId: string,
+  chain: Exclude<OrderStatus, 'pending'>[],
+  completion?: { paymentMethod: PaymentMethod },
+) {
   let result: Awaited<ReturnType<typeof billingService.fireKot>> | undefined;
   for (const target of chain) {
-    result = await TARGET_TO_SERVICE_CALL[target](orderId);
+    result =
+      target === 'completed'
+        ? await billingService.complete(orderId, completion!.paymentMethod)
+        : await TARGET_TO_SERVICE_CALL[target](orderId);
   }
   return result as Awaited<ReturnType<typeof billingService.fireKot>>;
 }
 
-/** Client-side-only preview of what the order will cost — `sellingPrice` is tax-inclusive, so this is just `quantity × price` summed, not a tax breakdown. The real `subtotal`/`taxTotal`/`total` are always computed and returned by the backend once the order is created. */
-function estimateTotal(lines: CartLine[]): number {
-  return lines.reduce((sum, line) => sum + line.quantity * Number(line.product.sellingPrice), 0);
+/** This line's own price after its own discount — `effectiveSellingPrice` (the location-resolved price, falling back to the master price when there's no override) is tax-inclusive, so this is just `qty × price × (1 - discount%)`, not a tax breakdown. */
+function lineEstimate(line: CartLine): number {
+  return line.quantity * Number(line.product.effectiveSellingPrice) * (1 - line.discountPercent / 100);
+}
+
+/**
+ * Client-side-only preview of what the order will cost, mirroring the
+ * backend's layered math (`OrderService._recompute_totals`): each line's own
+ * discount first, then the order-level discount on top of that subtotal.
+ * The real `subtotal`/`taxTotal`/`total` are always computed and returned by
+ * the backend once the order is actually created — this is just for the
+ * cart's running total, not a tax breakdown.
+ */
+function estimateTotal(lines: CartLine[], orderDiscountPercent: number): number {
+  const preOrderDiscount = lines.reduce((sum, line) => sum + lineEstimate(line), 0);
+  return preOrderDiscount * (1 - orderDiscountPercent / 100);
 }
 
 /**
@@ -144,10 +157,13 @@ export function NewOrderPage() {
 
   const businessesQuery = useBusinesses({ enabled: isTenantAdmin });
   const locationsQuery = useLocations({ enabled: isTenantAdmin });
-  const productsQuery = useProducts();
 
   const [cart, setCart] = useState<Record<string, CartLine>>({});
   const [productSearch, setProductSearch] = useState('');
+  // Whole-order discount (%), asked up front while the cart is being built —
+  // not at completion — and applied on top of each line's own discount, if
+  // any. Defaults to 0 so most orders never touch it.
+  const [orderDiscountPercent, setOrderDiscountPercent] = useState('0');
 
   const productGridRef = useRef<HTMLDivElement>(null);
   const productGridHeight = useFillRemainingHeight(productGridRef, { minHeight: 320 });
@@ -218,7 +234,8 @@ export function NewOrderPage() {
   const filteredLocations = useMemo(
     () =>
       (locationsQuery.data ?? []).filter(
-        (location) => !selectedBusinessId || location.businessId === selectedBusinessId,
+        (location) =>
+          location.isActive && (!selectedBusinessId || location.businessId === selectedBusinessId),
       ),
     [locationsQuery.data, selectedBusinessId],
   );
@@ -228,9 +245,51 @@ export function NewOrderPage() {
     [filteredLocations],
   );
 
-  // Auto-fill (and, per the Selects' own conditional rendering below, hide)
-  // the business/location pickers when there's exactly one option — a
-  // tenant_admin with a single business/location never has to touch these.
+  // A business with more than one location waits for one to be picked
+  // before fetching products at all, rather than fetching the unfiltered
+  // business-wide list first and then re-fetching the location-scoped one
+  // the moment a location resolves (auto-picked or chosen) — that was a
+  // visible flash of the wrong prices/availability followed immediately by
+  // a second load. A business with 0-1 locations skips the wait — its one
+  // location auto-selects near-instantly (`useAutoSelectSingle` below), so
+  // there's nothing worth waiting for.
+  const waitingForLocation = isTenantAdmin && filteredLocations.length > 1 && !selectedLocationId;
+  // A manager's own `assignedLocationId` isn't available anywhere in the
+  // frontend today (their JWT/`useAuthStore` doesn't carry it, and
+  // `useLocations()` — the only source of a location list — is
+  // `IsTenantAdmin`-gated so they can't resolve it themselves either), so
+  // their grid stays the unfiltered full-business list; correctness at
+  // their one location is still enforced server-side when a line is added
+  // (`OrderService._upsert_item` rejects an unavailable-there product with
+  // a normal error toast). A tenant_admin gets the real per-location
+  // effective view once they've picked a location.
+  const productsQuery = useProducts(isTenantAdmin ? selectedLocationId || undefined : undefined, {
+    enabled: !waitingForLocation,
+  });
+
+  // Clear a location left over from a *previously* selected business before
+  // anything else runs — `NEW_ORDER_SELECTION_KEY` (sessionMemory) persists
+  // the last business/location pair across visits, but switching business
+  // here must not silently keep submitting another business's (or another
+  // business's now-inactive) location; the backend rejects that combination
+  // outright ("location does not belong to this business"). Runs before
+  // `useAutoSelectSingle` below so the same render pass that clears a stale
+  // id also gets a chance to auto-fill the newly-selected business's own
+  // single location, if it has just one.
+  useEffect(() => {
+    if (selectedLocationId && !filteredLocations.some((location) => location.id === selectedLocationId)) {
+      setValue('locationId', '');
+    }
+  }, [filteredLocations, selectedLocationId, setValue]);
+
+  // Auto-fill the business/location pickers when there's exactly one option
+  // — a tenant_admin with a single business/location never has to touch
+  // these. The business picker also hides itself in that case (see the
+  // Selects' conditional rendering below); the location picker stays
+  // visible even at a single option so it's always clear *which* location
+  // an order is being opened against, especially once a tenant has more
+  // than one business (the scenario that surfaced the stale-location bug
+  // fixed above).
   useAutoSelectSingle(businessesQuery.data, selectedBusinessId, (id) => setValue('businessId', id));
   useAutoSelectSingle(filteredLocations, selectedLocationId, (id) => setValue('locationId', id));
 
@@ -280,6 +339,12 @@ export function NewOrderPage() {
     let products = productsQuery.data ?? [];
     if (isTenantAdmin) {
       if (!selectedBusinessId) return [];
+      // Already the right, location-resolved set server-side whenever
+      // `productsQuery` carried a `locationId` (see its own useProducts()
+      // call above) — this filter is then a harmless no-op re-check. It's
+      // still load-bearing for the window before a location is picked
+      // (business chosen, no location yet) and for a manager, whose call
+      // never carries a location at all.
       products = products.filter((product) => product.businessId === selectedBusinessId);
     }
     const term = productSearch.trim().toLowerCase();
@@ -293,14 +358,23 @@ export function NewOrderPage() {
   }, [productsQuery.data, isTenantAdmin, selectedBusinessId, productSearch]);
 
   const cartLines = Object.values(cart);
-  const estimatedTotal = estimateTotal(cartLines);
+  const estimatedTotal = estimateTotal(cartLines, Number(orderDiscountPercent || 0));
 
   function addToCart(product: Product) {
     setCart((prev) => {
       const existing = prev[product.id];
       return {
         ...prev,
-        [product.id]: { product, quantity: (existing?.quantity ?? 0) + 1 },
+        [product.id]: {
+          product,
+          quantity: (existing?.quantity ?? 0) + 1,
+          // Only the first time this product lands in the cart —
+          // `effectiveDiscountPercent` (the location-resolved default,
+          // falling back to the master product's own when there's no
+          // override), still freely editable per line afterward via
+          // `setItemDiscountPercent`.
+          discountPercent: existing?.discountPercent ?? Number(product.effectiveDiscountPercent || 0),
+        },
       };
     });
   }
@@ -313,6 +387,14 @@ export function NewOrderPage() {
         return next;
       }
       return { ...prev, [productId]: { ...prev[productId], quantity } };
+    });
+  }
+
+  function setItemDiscountPercent(productId: string, discountPercent: number) {
+    setCart((prev) => {
+      if (!prev[productId]) return prev;
+      const clamped = Math.min(100, Math.max(0, discountPercent || 0));
+      return { ...prev, [productId]: { ...prev[productId], discountPercent: clamped } };
     });
   }
 
@@ -346,6 +428,7 @@ export function NewOrderPage() {
     setPaymentMethod('cash');
     setAmountTendered('');
     setCart({});
+    setOrderDiscountPercent('0');
     setProductSearch('');
     // Table-first mode sends the cashier back to the floor plan for the
     // next walk-in rather than reusing the same table's cart.
@@ -372,9 +455,11 @@ export function NewOrderPage() {
         tableNumber: values.tableNumber || undefined,
         customerName: values.customerName,
         customerPhone: values.customerPhone,
+        discountPercent: orderDiscountPercent || '0',
         items: cartLines.map((line) => ({
           productId: line.product.id,
           quantity: String(line.quantity),
+          discountPercent: String(line.discountPercent || 0),
         })),
       }),
     onSuccess: (order) => {
@@ -412,6 +497,7 @@ export function NewOrderPage() {
       advanceOrder(
         (pendingOrder as Order).id,
         isFoodFlow ? COMPLETED_FOOD_CHAIN : COMPLETED_NONFOOD_CHAIN,
+        { paymentMethod },
       ),
     onSuccess: ({ warning }) => {
       showToast({
@@ -428,9 +514,11 @@ export function NewOrderPage() {
     markDeliveredMutation.isPending ||
     completePaymentMutation.isPending;
 
-  const changeDue = pendingOrder
-    ? Math.max(0, Number(amountTendered || 0) - Number(pendingOrder.total))
-    : 0;
+  // `pendingOrder.total` already reflects every discount (item-level + the
+  // order-level one set while building the cart) — the backend computed it
+  // at creation, so there's nothing left to net out here.
+  const amountToCollect = pendingOrder ? Number(pendingOrder.total) : 0;
+  const changeDue = pendingOrder ? Math.max(0, Number(amountTendered || 0) - amountToCollect) : 0;
 
   return (
     <div className="pb-24 lg:pb-0">
@@ -474,7 +562,7 @@ export function NewOrderPage() {
                   )}
                 />
               ) : null}
-              {locationOptions.length > 1 ? (
+              {locationOptions.length >= 1 ? (
                 <Controller
                   name="locationId"
                   control={control}
@@ -534,6 +622,11 @@ export function NewOrderPage() {
                 title="Select a business"
                 description="Pick a business above to see its products."
               />
+            ) : waitingForLocation ? (
+              <EmptyState
+                title="Select a location"
+                description="This business has more than one location — pick one above to see what it carries."
+              />
             ) : availableProducts.length === 0 ? (
               <EmptyState
                 title="No products found"
@@ -561,7 +654,7 @@ export function NewOrderPage() {
                         {product.name}
                       </span>
                       <span className="shrink-0 text-sm font-semibold text-brand">
-                        ₹{product.sellingPrice}
+                        ₹{product.effectiveSellingPrice}
                       </span>
                     </span>
                     <span className="text-xs text-ink-faint">{product.sku}</span>
@@ -586,52 +679,104 @@ export function NewOrderPage() {
                 <div className="max-h-[360px] flex-1 overflow-y-auto pr-1">
                   <div className="flex flex-col gap-3">
                     {cartLines.map((line) => (
-                      <div key={line.product.id} className="flex items-start gap-2">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-ink">
-                            {line.product.name}
-                          </p>
-                          <p className="text-xs text-ink-faint">
-                            ₹{line.product.sellingPrice} × {line.quantity} = ₹
-                            {(line.quantity * Number(line.product.sellingPrice)).toFixed(2)}
-                          </p>
+                      <div
+                        key={line.product.id}
+                        className="flex flex-col gap-1.5 rounded-control border border-border/60 p-2"
+                      >
+                        <div className="flex items-start gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-ink">
+                              {line.product.name}
+                            </p>
+                            <p className="text-xs text-ink-faint">
+                              ₹{line.product.effectiveSellingPrice} × {line.quantity}
+                              {line.discountPercent > 0 ? ` − ${line.discountPercent}%` : ''} = ₹
+                              {lineEstimate(line).toFixed(2)}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              aria-label="Decrease quantity"
+                              onClick={() => setQuantity(line.product.id, line.quantity - 1)}
+                              className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-ink-soft hover:bg-surface"
+                            >
+                              <Minus size={12} />
+                            </button>
+                            <span className="w-5 text-center text-xs font-semibold">
+                              {line.quantity}
+                            </span>
+                            <button
+                              type="button"
+                              aria-label="Increase quantity"
+                              onClick={() => setQuantity(line.product.id, line.quantity + 1)}
+                              className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-ink-soft hover:bg-surface"
+                            >
+                              <Plus size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Remove from cart"
+                              onClick={() => removeFromCart(line.product.id)}
+                              className="ml-1 flex h-6 w-6 items-center justify-center rounded-full text-ink-faint hover:bg-danger-bg hover:text-danger"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            aria-label="Decrease quantity"
-                            onClick={() => setQuantity(line.product.id, line.quantity - 1)}
-                            className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-ink-soft hover:bg-surface"
+                        <div className="flex items-center gap-1.5">
+                          <label
+                            className="text-[11px] text-ink-faint"
+                            htmlFor={`item-discount-${line.product.id}`}
                           >
-                            <Minus size={12} />
-                          </button>
-                          <span className="w-5 text-center text-xs font-semibold">
-                            {line.quantity}
-                          </span>
-                          <button
-                            type="button"
-                            aria-label="Increase quantity"
-                            onClick={() => setQuantity(line.product.id, line.quantity + 1)}
-                            className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-ink-soft hover:bg-surface"
-                          >
-                            <Plus size={12} />
-                          </button>
-                          <button
-                            type="button"
-                            aria-label="Remove from cart"
-                            onClick={() => removeFromCart(line.product.id)}
-                            className="ml-1 flex h-6 w-6 items-center justify-center rounded-full text-ink-faint hover:bg-danger-bg hover:text-danger"
-                          >
-                            <Trash2 size={12} />
-                          </button>
+                            Item discount
+                          </label>
+                          <input
+                            id={`item-discount-${line.product.id}`}
+                            type="number"
+                            min={0}
+                            max={100}
+                            inputMode="decimal"
+                            value={line.discountPercent || ''}
+                            onChange={(event) =>
+                              setItemDiscountPercent(line.product.id, Number(event.target.value))
+                            }
+                            placeholder="0"
+                            className="h-6 w-14 rounded-control border border-border px-1.5 text-xs text-ink focus:border-brand focus:outline-none"
+                          />
+                          <span className="text-[11px] text-ink-faint">%</span>
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
-                <div className="mt-3 flex shrink-0 items-center justify-between border-t border-border pt-3 text-sm font-semibold text-ink">
-                  <span>Estimated total</span>
-                  <span>₹{estimatedTotal.toFixed(2)}</span>
+                <div className="mt-3 flex shrink-0 flex-col gap-2 border-t border-border pt-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <label
+                      htmlFor="order-discount-percent"
+                      className="text-xs font-medium text-ink-soft"
+                    >
+                      Order discount (optional)
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        id="order-discount-percent"
+                        type="number"
+                        min={0}
+                        max={100}
+                        inputMode="decimal"
+                        value={orderDiscountPercent}
+                        onChange={(event) => setOrderDiscountPercent(event.target.value)}
+                        placeholder="0"
+                        className="h-7 w-16 rounded-control border border-border px-1.5 text-sm text-ink focus:border-brand focus:outline-none"
+                      />
+                      <span className="text-xs text-ink-faint">%</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-sm font-semibold text-ink">
+                    <span>Estimated total</span>
+                    <span>₹{estimatedTotal.toFixed(2)}</span>
+                  </div>
                 </div>
               </>
             )}
@@ -729,7 +874,7 @@ export function NewOrderPage() {
         title={paymentStep ? 'Take payment' : 'Order created'}
         description={
           paymentStep
-            ? `Total due ₹${pendingOrder?.total ?? '0'}`
+            ? `Total due ₹${amountToCollect.toFixed(2)}`
             : isFoodFlow
               ? 'Send it to the kitchen, or skip straight to delivered/completed for a counter item that needs no prep.'
               : 'Take payment to complete this order.'
@@ -796,7 +941,7 @@ export function NewOrderPage() {
               inputMode="decimal"
               value={amountTendered}
               onChange={(event) => setAmountTendered(event.target.value)}
-              placeholder={pendingOrder?.total}
+              placeholder={amountToCollect.toFixed(2)}
             />
             {amountTendered ? (
               <p className="text-sm text-ink-soft">

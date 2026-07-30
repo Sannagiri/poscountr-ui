@@ -10,8 +10,10 @@ import {
   Receipt,
   Settings,
   ShieldCheck,
+  ShoppingCart,
   Store,
   Ticket,
+  Truck,
   UserCircle,
   UserCog,
   Users,
@@ -32,6 +34,17 @@ export interface NavItem {
    * Invoices, (more later)" structure needs.
    */
   children?: NavItem[];
+  /**
+   * Only reachable for a retail/pharmacy/grocery business (the purchasing
+   * domain — Suppliers/Purchase orders) — never restaurant/cafe, which stay
+   * sell-only. `Sidebar` applies this on top of the plain role filter via
+   * `filterByPurchasingGate`, since it depends on the acting tenant_admin's
+   * own businesses (`isPurchasingEntityType`, `@/modules/businesses`) rather
+   * than the role alone. This is the first nav gate keyed off anything but
+   * role — every other entry (including `Tables`/`Kitchen`) still shows
+   * regardless of business type, unchanged.
+   */
+  requiresPurchasingBusiness?: boolean;
 }
 
 export interface NavGroup {
@@ -85,6 +98,20 @@ export const OWNER_NAV_GROUPS: NavGroup[] = [
         path: '/orders',
         icon: <Receipt size={ICON_SIZE} />,
         roles: ['tenant_admin', 'manager'],
+      },
+      {
+        label: 'Suppliers',
+        path: '/suppliers',
+        icon: <Truck size={ICON_SIZE} />,
+        roles: ['tenant_admin', 'manager'],
+        requiresPurchasingBusiness: true,
+      },
+      {
+        label: 'Purchase orders',
+        path: '/purchase-orders',
+        icon: <ShoppingCart size={ICON_SIZE} />,
+        roles: ['tenant_admin', 'manager'],
+        requiresPurchasingBusiness: true,
       },
       {
         label: 'Kitchen',
@@ -154,6 +181,13 @@ export const OWNER_NAV_GROUPS: NavGroup[] = [
             icon: <ListOrdered size={ICON_SIZE} />,
             roles: ['tenant_admin'],
           },
+          {
+            label: 'Purchase orders',
+            path: '/settings/purchasing',
+            icon: <ShoppingCart size={ICON_SIZE} />,
+            roles: ['tenant_admin'],
+            requiresPurchasingBusiness: true,
+          },
           // More sections (e.g. Tax, Notifications, Integrations) land here
           // over time — each just another entry in this array, no other
           // wiring needed (`Sidebar` renders however many children exist).
@@ -211,5 +245,33 @@ export function navGroupsForRole(role: UserRole): NavGroup[] {
   const groups = role === 'ultra_admin' ? PLATFORM_NAV_GROUPS : OWNER_NAV_GROUPS;
   return groups
     .map((group) => ({ ...group, items: filterItems(group.items, role) }))
+    .filter((group) => group.items.length > 0);
+}
+
+function filterByPurchasingGateItems(items: NavItem[], hasPurchasingBusiness: boolean): NavItem[] {
+  return items
+    .filter((item) => !item.requiresPurchasingBusiness || hasPurchasingBusiness)
+    .map((item) =>
+      item.children
+        ? { ...item, children: filterByPurchasingGateItems(item.children, hasPurchasingBusiness) }
+        : item,
+    );
+}
+
+/**
+ * Applied on top of `navGroupsForRole`'s own role filter — drops every
+ * `requiresPurchasingBusiness` entry (Suppliers, Purchase orders) unless the
+ * caller says at least one of the acting tenant_admin's businesses is
+ * retail/pharmacy/grocery. `Sidebar` resolves `hasPurchasingBusiness` itself
+ * (via `useBusinesses`/`isPurchasingEntityType`) since that's a data
+ * dependency this pure function has no business making — a manager, who
+ * can't call `/tenant/businesses/` at all, has no way to resolve this
+ * client-side, so `Sidebar` passes `true` for them (same lenient fallback
+ * `NewOrderPage` already accepts for a manager's unresolvable business
+ * context elsewhere).
+ */
+export function filterByPurchasingGate(groups: NavGroup[], hasPurchasingBusiness: boolean): NavGroup[] {
+  return groups
+    .map((group) => ({ ...group, items: filterByPurchasingGateItems(group.items, hasPurchasingBusiness) }))
     .filter((group) => group.items.length > 0);
 }

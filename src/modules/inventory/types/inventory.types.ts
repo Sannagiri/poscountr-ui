@@ -29,9 +29,10 @@ export interface ProductStockRow {
  * A catalog product. `isStockTracked`/`isBatchTracked` are computed
  * server-side from the owning business's `entity_type` (`flags_for()`) and
  * never accepted from the client — the frontend gates entity-type-aware UI
- * off these two flags rather than a literal `entity_type` string, since
- * that string isn't available here at all (see `ProductRequest`'s comment
- * for why the create form can't know it upfront either).
+ * off these two flags once a product exists. Before creation, `ProductFormModal`
+ * derives the same two flags client-side from the target business's own
+ * `entityType` (via `useBusinesses`), when that's available — see that
+ * component's `flagsForEntityType`.
  */
 export interface Product {
   id: string;
@@ -47,6 +48,19 @@ export interface Product {
   costPrice: string | null;
   gstRate: string;
   hsnCode: string;
+  /** Auto-applied to a cart line's discount % when this product is added to an order in `NewOrderPage`; still editable per line there. */
+  defaultDiscountPercent: string;
+  /**
+   * Always present — equals `sellingPrice`/`defaultDiscountPercent` when the
+   * product list wasn't fetched for a specific location (`useProducts()`,
+   * no arg), or that location's resolved override (falls back to the
+   * master value per-field when there's no override, or the override
+   * leaves a field unset) when it was (`useProducts(locationId)`). Use
+   * these two — not the raw `sellingPrice`/`defaultDiscountPercent` — for
+   * anything location-aware (`NewOrderPage`'s cart/estimate).
+   */
+  effectiveSellingPrice: string;
+  effectiveDiscountPercent: string;
   description: string;
   imageUrl: string;
   isStockTracked: boolean;
@@ -73,15 +87,12 @@ export interface Product {
  * `ProductService.create`.
  *
  * Restaurant (`isVeg`/`kitchenStation`/`isAvailable`) and pharmacy
- * (`manufacturer`/`schedule`/`composition`) fields are accepted here too,
- * but the create *form* only shows the universal fields — before a product
- * exists there's no `is_stock_tracked`/`is_batch_tracked` to gate them on,
- * and neither the frontend nor a `manager` (who can't call the
- * businesses-list endpoint at all) has any other way to know the target
- * business's `entity_type` ahead of time. `ProductFormModal` re-opens in
- * edit mode straight after a successful create, where those flags are now
- * known, so filling in the type-specific fields is still just one step
- * away rather than a dead end.
+ * (`manufacturer`/`schedule`/`composition`) fields are accepted here too.
+ * `ProductFormModal`'s create form shows the relevant section immediately
+ * when the target business's `entityType` is known client-side (the normal
+ * tenant_admin path, via `useBusinesses`); a manager creating their own
+ * product can't call that endpoint, so those sections stay hidden until
+ * the product exists and can be filled in via Edit.
  */
 export interface ProductRequest {
   businessId?: string;
@@ -95,6 +106,7 @@ export interface ProductRequest {
   costPrice?: string;
   gstRate?: string;
   hsnCode?: string;
+  defaultDiscountPercent?: string;
   description?: string;
   isVeg?: boolean | null;
   kitchenStation?: string;
@@ -105,6 +117,33 @@ export interface ProductRequest {
   openingStock?: string;
   reorderLevel?: string;
   locationId?: string;
+}
+
+/**
+ * One location's catalog override state for a product — GET
+ * `/tenant/products/{id}/locations/`. `sellingPrice`/`defaultDiscountPercent`
+ * are `null` when that field isn't overridden (inherits the master
+ * `Product` value) — `hasOverride` is `false` when the location has no
+ * override row at all (available, fully inherited).
+ */
+export interface ProductLocationOverrideRow {
+  locationId: string;
+  locationName: string;
+  isAvailable: boolean;
+  sellingPrice: string | null;
+  defaultDiscountPercent: string | null;
+  hasOverride: boolean;
+}
+
+/**
+ * Partial upsert of one location's override — an omitted key leaves that
+ * field unchanged; an explicit `null` on `sellingPrice`/`defaultDiscountPercent`
+ * clears it back to "inherit from the master product".
+ */
+export interface ProductLocationOverrideRequest {
+  isAvailable?: boolean;
+  sellingPrice?: string | null;
+  defaultDiscountPercent?: string | null;
 }
 
 /** On-hand stock of one product at one location — the dedicated stock endpoints' response shape (same fields as `ProductStockRow`, plus its own id). */

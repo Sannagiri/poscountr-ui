@@ -4,6 +4,7 @@ import type { OrderResetPeriod, ResourceKey } from '../types/settings.types';
 export const SETTINGS_ROUTES = {
   invoices: '/settings/invoices',
   orders: '/settings/orders',
+  purchasing: '/settings/purchasing',
 } as const;
 
 /** TanStack Query cache keys for this module. */
@@ -11,6 +12,7 @@ export const SETTINGS_QUERY_KEYS = {
   licensePlan: ['settings', 'license-plan'] as const,
   invoiceSettings: (businessId: string) => ['settings', 'invoice-settings', businessId] as const,
   orderSettings: (businessId: string) => ['settings', 'order-settings', businessId] as const,
+  purchaseSettings: (businessId: string) => ['settings', 'purchase-settings', businessId] as const,
 };
 
 /** Mirrors `OrderResetPeriod.choices` (apps/billing/constants.py) — display order + label. */

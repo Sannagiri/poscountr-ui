@@ -43,3 +43,39 @@ export const statusColorRole = {
 } as const;
 
 export type StatusKey = keyof typeof statusColorRole;
+
+/**
+ * Categorical chart palette (Reports dashboard donuts/bars) — 8 hues, fixed
+ * order, validated via the dataviz skill's `validate_palette.js` against
+ * this app's card surface (`#FFFFFF`): CVD-safe adjacent pairs (worst ΔE 9.1
+ * light, ≥8 target), normal-vision floor 19.6 (≥15 floor). Never reassign or
+ * reorder per-chart — identity (which category/payment method) has to stay
+ * stable across the dashboard. Three slots (aqua/yellow/magenta) sit below
+ * 3:1 contrast on a light surface by design — the mitigation is always
+ * pairing them with a visible label (donut legend/% labels), never a bare
+ * color swatch alone.
+ */
+export const categoricalPalette = [
+  '#2a78d6', // 1 blue
+  '#eb6834', // 2 orange
+  '#1baf7a', // 3 aqua
+  '#eda100', // 4 yellow
+  '#e87ba4', // 5 magenta
+  '#008300', // 6 green
+  '#4a3aa7', // 7 violet
+  '#e34948', // 8 red
+] as const;
+
+/** Fixed slot per payment method — same order as `PAYMENT_METHOD_OPTIONS` (billing.constants.ts) so identity stays consistent between the completion-step picker and the Reports payment-mix chart. */
+export const paymentMethodColorRole: Record<string, string> = {
+  cash: categoricalPalette[0],
+  card: categoricalPalette[1],
+  upi: categoricalPalette[2],
+  wallet: categoricalPalette[3],
+  other: categoricalPalette[7],
+};
+
+/** Category-mix / any other nominal series pulls slots in order, capped at the 8 validated hues — a 9th distinct category folds into "Other" rather than cycling back to slot 1 (see dataviz skill, "never a generated 9th hue"). */
+export function categoricalColorAt(index: number): string {
+  return categoricalPalette[index % categoricalPalette.length];
+}

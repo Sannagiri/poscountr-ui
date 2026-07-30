@@ -78,6 +78,14 @@ export const productSchema = z
         'A percentage between 0 and 100',
       ),
     hsnCode: z.string().optional().or(z.literal('')),
+    defaultDiscountPercent: z
+      .string()
+      .optional()
+      .or(z.literal(''))
+      .refine(
+        (value) => !value || (MONEY_REGEX.test(value) && Number(value) <= 100),
+        'A percentage between 0 and 100',
+      ),
     description: z.string().optional().or(z.literal('')),
     isVeg: z.enum(['veg', 'non_veg', '']),
     kitchenStation: z.string().optional().or(z.literal('')),

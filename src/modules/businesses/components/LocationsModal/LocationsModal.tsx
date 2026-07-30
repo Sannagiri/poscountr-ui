@@ -21,7 +21,11 @@ import { toneForStatus } from '@/utils/status';
 
 import { TableLayoutEditorModal } from '@/modules/tables';
 
-import { BUSINESSES_QUERY_KEYS, INDIAN_STATE_OPTIONS } from '../../constants/businesses.constants';
+import {
+  BUSINESSES_QUERY_KEYS,
+  INDIAN_STATE_OPTIONS,
+  isDineInEntityType,
+} from '../../constants/businesses.constants';
 import { useLicenseUsage } from '../../hooks/useLicenseUsage';
 import { businessesService } from '../../services/businessesService';
 import type { BusinessEntity, Location } from '../../types/businesses.types';
@@ -456,15 +460,17 @@ export function LocationsModal({
                     <Pencil size={13} />
                     Edit
                   </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="px-2"
-                    onClick={() => setEditingLayoutLocation(location)}
-                  >
-                    <LayoutGrid size={13} />
-                    Layout
-                  </Button>
+                  {isDineInEntityType(business?.entityType) ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="px-2"
+                      onClick={() => setEditingLayoutLocation(location)}
+                    >
+                      <LayoutGrid size={13} />
+                      Layout
+                    </Button>
+                  ) : null}
                   {location.isActive ? (
                     <Button
                       variant="secondary"

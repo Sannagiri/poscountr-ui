@@ -7,7 +7,7 @@ import { Card, CardHeader, Input, PageHeader, Select, Switch, useToast } from '@
 import { cn } from '@/utils/cn';
 import { describeApiError } from '@/utils/errors';
 
-import { useBusinesses } from '@/modules/businesses';
+import { isDineInEntityType, useBusinesses } from '@/modules/businesses';
 
 import { ORDER_RESET_PERIOD_OPTIONS, SETTINGS_QUERY_KEYS } from '../constants/settings.constants';
 import { useOrderSettings } from '../hooks/useOrderSettings';
@@ -147,6 +147,13 @@ export function OrderSettingsPage() {
     value: business.id,
     label: business.name,
   }));
+  const selectedBusiness = businessesQuery.data?.find((business) => business.id === selectedBusinessId);
+  // Shown for a dine-in business type, or — even for a non-dine-in one —
+  // if it's already on (set before this gate existed, or the business
+  // type changed since) so there's still a way to switch it back off
+  // instead of getting silently stuck.
+  const showTableLayoutSetting =
+    isDineInEntityType(selectedBusiness?.entityType) || orderSettingsQuery.data?.tableLayoutEnabled;
 
   return (
     <div>
@@ -325,37 +332,39 @@ export function OrderSettingsPage() {
             />
           </Card>
 
-          <Card>
-            <CardHeader
-              icon={LayoutGrid}
-              title="Table-first ordering"
-              subtitle="Start New order from a table layout instead of business/location pickers"
-            />
-            <Controller
-              control={control}
-              name="tableLayoutEnabled"
-              render={({ field }) => (
-                <div className="flex items-start justify-between gap-4 rounded-control border border-border bg-surface/60 p-3.5">
-                  <span>
-                    <span className="block text-sm font-semibold text-ink">
-                      Pick a table before picking items
+          {showTableLayoutSetting ? (
+            <Card>
+              <CardHeader
+                icon={LayoutGrid}
+                title="Table-first ordering"
+                subtitle="Start New order from a table layout instead of business/location pickers"
+              />
+              <Controller
+                control={control}
+                name="tableLayoutEnabled"
+                render={({ field }) => (
+                  <div className="flex items-start justify-between gap-4 rounded-control border border-border bg-surface/60 p-3.5">
+                    <span>
+                      <span className="block text-sm font-semibold text-ink">
+                        Pick a table before picking items
+                      </span>
+                      <span className="mt-0.5 block text-xs text-ink-faint">
+                        When on, New order opens the location&apos;s floor plan first — tap a
+                        table to start (or reopen its bill if it&apos;s already occupied).
+                        Design each location&apos;s layout from Locations → Edit layout. When off,
+                        New order works exactly as it does today.
+                      </span>
                     </span>
-                    <span className="mt-0.5 block text-xs text-ink-faint">
-                      When on, New order opens the location&apos;s floor plan first — tap a
-                      table to start (or reopen its bill if it&apos;s already occupied).
-                      Design each location&apos;s layout from Locations → Edit layout. When off,
-                      New order works exactly as it does today.
-                    </span>
-                  </span>
-                  <Switch
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                    label="Pick a table before picking items"
-                  />
-                </div>
-              )}
-            />
-          </Card>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      label="Pick a table before picking items"
+                    />
+                  </div>
+                )}
+              />
+            </Card>
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -25,3 +25,20 @@ export function dateIST(offsetDays = 0): string {
 export function toISTDate(isoDateTime: string): string {
   return new Date(isoDateTime).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 }
+
+/**
+ * `date | time` in the browser's locale, 24-hour, no seconds — e.g.
+ * `"22 Jun, 14:05"`. Shared by every "Created"/timeline timestamp across
+ * Orders and Purchase Orders (`OrderDetailPage`/`OrdersPage`/
+ * `PurchaseOrderDetailPage`/`PurchaseOrdersPage`) so the format never drifts
+ * between them again.
+ */
+export function formatTimestamp(value: string): string {
+  return new Date(value).toLocaleString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}

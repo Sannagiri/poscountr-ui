@@ -5,9 +5,10 @@ import { ChevronDown, ShieldCheck } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 import type { UserRole } from '@/modules/auth';
+import { isPurchasingEntityType, useBusinesses } from '@/modules/businesses';
 
 import type { NavItem } from './navConfig';
-import { navGroupsForRole } from './navConfig';
+import { filterByPurchasingGate, navGroupsForRole } from './navConfig';
 
 export interface SidebarProps {
   role: UserRole;
@@ -35,8 +36,19 @@ const LEAF_LINK_ACTIVE_CLASSES =
  * act inside a tenant" and the UI must never blur that line).
  */
 export function Sidebar({ role, variant = 'desktop' }: SidebarProps) {
-  const groups = navGroupsForRole(role);
   const location = useLocation();
+
+  // `useBusinesses` is `IsTenantAdmin`-gated server-side — a manager can't
+  // call it at all, so `hasPurchasingBusiness` stays `true` for them (see
+  // `filterByPurchasingGate`'s own doc comment on why that's the right
+  // fallback, not a hidden nav entry a manager has no way to unhide).
+  const businessesQuery = useBusinesses({ enabled: role === 'tenant_admin' });
+  const hasPurchasingBusiness =
+    role !== 'tenant_admin' || !businessesQuery.data
+      ? true
+      : businessesQuery.data.some((business) => isPurchasingEntityType(business.entityType));
+
+  const groups = filterByPurchasingGate(navGroupsForRole(role), hasPurchasingBusiness);
 
   return (
     <aside

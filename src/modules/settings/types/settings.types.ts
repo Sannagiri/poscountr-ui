@@ -121,3 +121,26 @@ export interface OrderSettingsRequest {
   kitchenEnabled?: boolean;
   tableLayoutEnabled?: boolean;
 }
+
+/**
+ * One business's purchase-order numbering configuration
+ * (`apps/purchasing/models/purchase_settings.py`) — one row per
+ * `BusinessEntity`, retail/pharmacy/grocery only (the businesses that can
+ * have purchase orders at all). Mirrors `OrderSettings`'s own numbering
+ * fields exactly; there's no kitchen/customer-required equivalent here — a
+ * purchase order has no customer and no kitchen flow.
+ */
+export interface PurchaseSettings {
+  id: string;
+  businessId: string;
+  resetPeriod: OrderResetPeriod;
+  numberingPrefix: string;
+  numberingStart: string;
+}
+
+/** `PATCH /tenant/businesses/{id}/purchase-settings/` body — partial, every field optional. Tenant_admin only. */
+export interface PurchaseSettingsRequest {
+  resetPeriod?: OrderResetPeriod;
+  numberingPrefix?: string;
+  numberingStart?: string;
+}

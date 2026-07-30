@@ -13,8 +13,14 @@ import {
   TenantsPage,
 } from '@/modules/platform';
 import { ProfilePage } from '@/modules/profile';
+import {
+  NewPurchaseOrderPage,
+  PurchaseOrderDetailPage,
+  PurchaseOrdersPage,
+  SuppliersPage,
+} from '@/modules/purchasing';
 import { ReportsPage } from '@/modules/reports';
-import { InvoiceSettingsPage, OrderSettingsPage } from '@/modules/settings';
+import { InvoiceSettingsPage, OrderSettingsPage, PurchaseSettingsPage } from '@/modules/settings';
 import { TeamAdminsPage, TeamStaffPage } from '@/modules/team';
 
 import { RequireAuth } from './guards/RequireAuth';
@@ -60,6 +66,16 @@ export const router = createBrowserRouter([
               { path: '/orders', element: <OrdersPage /> },
               { path: '/orders/new', element: <NewOrderPage /> },
               { path: '/orders/:orderId', element: <OrderDetailPage /> },
+              // Reachable by URL even where the sidebar hides them (a
+              // restaurant/cafe business) — same "route stays open, only the
+              // nav entry is gated" approach every other role-only screen
+              // already takes; there's no per-business route guard anywhere
+              // in this router today to extend instead of introducing a new
+              // kind of guard just for this.
+              { path: '/suppliers', element: <SuppliersPage /> },
+              { path: '/purchase-orders', element: <PurchaseOrdersPage /> },
+              { path: '/purchase-orders/new', element: <NewPurchaseOrderPage /> },
+              { path: '/purchase-orders/:purchaseOrderId', element: <PurchaseOrderDetailPage /> },
               { path: '/kitchen', element: <KitchenPage /> },
               { path: '/reports', element: <ReportsPage /> },
             ],
@@ -81,6 +97,7 @@ export const router = createBrowserRouter([
               { path: '/settings', element: <Navigate to="/settings/invoices" replace /> },
               { path: '/settings/invoices', element: <InvoiceSettingsPage /> },
               { path: '/settings/orders', element: <OrderSettingsPage /> },
+              { path: '/settings/purchasing', element: <PurchaseSettingsPage /> },
             ],
           },
           {

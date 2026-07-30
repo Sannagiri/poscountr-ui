@@ -17,6 +17,7 @@ import type {
   OrderItemRequest,
   OrderStatus,
   OrderType,
+  PaymentMethod,
 } from '../types/billing.types';
 
 /**
@@ -37,6 +38,7 @@ interface OrderItemRaw {
   unit_price: string;
   gst_rate: string;
   quantity: string;
+  discount_percent: string;
   line_total: string;
 }
 
@@ -48,6 +50,7 @@ function mapOrderItem(raw: OrderItemRaw): OrderItem {
     unitPrice: raw.unit_price,
     gstRate: raw.gst_rate,
     quantity: raw.quantity,
+    discountPercent: raw.discount_percent,
     lineTotal: raw.line_total,
   };
 }
@@ -59,6 +62,9 @@ interface OrderRaw {
   location_name: string;
   status: OrderStatus;
   order_type: OrderType;
+  payment_method: string;
+  discount_percent: string;
+  discount_amount: string;
   order_number: string | null;
   kitchen_enabled: boolean;
   table_id: string | null;
@@ -75,6 +81,8 @@ interface OrderRaw {
   customer_state: string;
   note: string;
   items: OrderItemRaw[];
+  way_bill_url: string | null;
+  way_bill_uploaded_at: string | null;
   kot_fired_at: string | null;
   preparing_at: string | null;
   ready_at: string | null;
@@ -92,6 +100,9 @@ function mapOrder(raw: OrderRaw): Order {
     locationName: raw.location_name,
     status: raw.status,
     orderType: raw.order_type,
+    paymentMethod: (raw.payment_method as PaymentMethod | '') || '',
+    discountPercent: raw.discount_percent,
+    discountAmount: raw.discount_amount,
     orderNumber: raw.order_number,
     kitchenEnabled: raw.kitchen_enabled,
     tableId: raw.table_id,
@@ -108,6 +119,8 @@ function mapOrder(raw: OrderRaw): Order {
     customerState: raw.customer_state,
     note: raw.note,
     items: raw.items.map(mapOrderItem),
+    wayBillUrl: raw.way_bill_url,
+    wayBillUploadedAt: raw.way_bill_uploaded_at,
     kotFiredAt: raw.kot_fired_at,
     preparingAt: raw.preparing_at,
     readyAt: raw.ready_at,
@@ -127,12 +140,17 @@ function orderCreateRequestToBody(request: OrderCreateRequest) {
     table_number: request.tableNumber,
     note: request.note,
     idempotency_key: request.idempotencyKey,
-    items: request.items?.map((line) => ({ product_id: line.productId, quantity: line.quantity })),
+    items: request.items?.map((line) => ({
+      product_id: line.productId,
+      quantity: line.quantity,
+      discount_percent: line.discountPercent,
+    })),
     customer_name: request.customerName,
     customer_phone: request.customerPhone,
     customer_email: request.customerEmail,
     customer_gstin: request.customerGstin,
     customer_state: request.customerState,
+    discount_percent: request.discountPercent,
   };
 }
 
@@ -185,9 +203,9 @@ interface TransitionResult {
   invoice: Invoice | null;
 }
 
-async function transition(orderId: string, path: string): Promise<TransitionResult> {
+async function transition(orderId: string, path: string, body?: object): Promise<TransitionResult> {
   const { data, meta } = await unwrapWithMeta<OrderRaw>(
-    apiClient.post(`/tenant/orders/${orderId}/${path}/`),
+    apiClient.post(`/tenant/orders/${orderId}/${path}/`, body),
   );
   return {
     order: mapOrder(data),
@@ -219,12 +237,13 @@ export const billingService = {
     return mapOrder(raw);
   },
 
-  /** Sets `request.productId`'s line to `request.quantity` (adds the line if it doesn't exist yet) — only accepted while the order is still `pending`. */
+  /** Sets `request.productId`'s line to `request.quantity` (adds the line if it doesn't exist yet), optionally with its own discount — only accepted while the order is still `pending`. */
   async addItem(orderId: string, request: OrderItemRequest): Promise<Order> {
     const raw = await unwrap<OrderRaw>(
       apiClient.post(`/tenant/orders/${orderId}/items/`, {
         product_id: request.productId,
         quantity: request.quantity,
+        discount_percent: request.discountPercent,
       }),
     );
     return mapOrder(raw);
@@ -241,9 +260,30 @@ export const billingService = {
   setPreparing: (orderId: string) => transition(orderId, 'preparing'),
   setReady: (orderId: string) => transition(orderId, 'ready'),
   deliver: (orderId: string) => transition(orderId, 'deliver'),
-  /** The only transition that can carry a `warning` — a lenient-mode tenant at/over its monthly-transaction cap still completes the order, with a warning to surface rather than block on. */
-  complete: (orderId: string) => transition(orderId, 'complete'),
+  /**
+   * The one transition that takes a body — `payment_method` is required
+   * (this is the point money actually changes hands). Discounts are set
+   * earlier (order creation / line add), not here. Also the only transition
+   * that can carry a `warning` — a lenient-mode tenant at/over its
+   * monthly-transaction cap still completes the order, with a warning to
+   * surface rather than block on.
+   */
+  complete: (orderId: string, paymentMethod: PaymentMethod) =>
+    transition(orderId, 'complete', { payment_method: paymentMethod }),
   cancel: (orderId: string) => transition(orderId, 'cancel'),
+
+  /** Multipart field name is `way_bill` — same shape (and same backend concept) as the purchasing module's `purchasingService.uploadWayBill`, just on the sell-side `Order` instead of a `PurchaseOrder`. Accepts a PDF or an image (a phone photo of the physical copy), max 10MB. */
+  async uploadWayBill(orderId: string, file: File): Promise<Order> {
+    const formData = new FormData();
+    formData.append('way_bill', file);
+    const raw = await unwrap<OrderRaw>(apiClient.post(`/tenant/orders/${orderId}/way-bill/`, formData));
+    return mapOrder(raw);
+  },
+
+  async removeWayBill(orderId: string): Promise<Order> {
+    const raw = await unwrap<OrderRaw>(apiClient.delete(`/tenant/orders/${orderId}/way-bill/`));
+    return mapOrder(raw);
+  },
 
   /**
    * `manager`/`kitchen_staff` never pass `locationId` — the backend

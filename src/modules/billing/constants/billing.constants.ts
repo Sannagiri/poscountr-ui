@@ -1,6 +1,6 @@
 import type { UserRole } from '@/modules/auth';
 
-import type { OrderStatus, OrderType } from '../types/billing.types';
+import type { OrderStatus, OrderType, PaymentMethod } from '../types/billing.types';
 
 /** Route paths owned by the billing module — imported by the router, never hardcoded at call sites. */
 export const BILLING_ROUTES = {
@@ -29,6 +29,15 @@ export const ORDER_TYPE_OPTIONS: { value: OrderType; label: string }[] = [
   { value: 'dine_in', label: 'Dine-in' },
   { value: 'takeaway', label: 'Takeaway' },
   { value: 'delivery', label: 'Delivery' },
+];
+
+/** Mirrors the backend's `PaymentMethod.choices` (apps/billing/constants.py) — the completion step's payment-method picker. */
+export const PAYMENT_METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'card', label: 'Card' },
+  { value: 'upi', label: 'UPI' },
+  { value: 'wallet', label: 'Wallet' },
+  { value: 'other', label: 'Other' },
 ];
 
 /** Backend's own doc comment on `KDSListView` says "poll every 3–5s" until the realtime (Channels) upgrade lands — 4s splits the difference. */

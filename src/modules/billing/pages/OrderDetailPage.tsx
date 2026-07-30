@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Eye, ListOrdered, Trash2 } from 'lucide-react';
+import { Eye, ListOrdered, MessageCircle, Trash2 } from 'lucide-react';
 
 import type { DataTableColumn, DataTableRowAction } from '@/components';
 import {
@@ -10,15 +10,21 @@ import {
   ConfirmDialog,
   DataTable,
   EmptyState,
+  Input,
   Loader,
+  Modal,
   PageHeader,
   SearchInput,
+  Select,
   useToast,
+  WayBillUpload,
 } from '@/components';
+import { formatTimestamp } from '@/utils/date';
 import { describeApiError } from '@/utils/errors';
 import { statusLabel, toneForStatus } from '@/utils/status';
 
 import { useAuthStore } from '@/modules/auth';
+import type { Product } from '@/modules/inventory';
 import { useProducts } from '@/modules/inventory';
 
 import { OrderBillPreviewModal } from '../components/OrderBillPreviewModal';
@@ -28,13 +34,21 @@ import {
   canCancel,
   nextStatusFor,
   ORDER_TYPE_OPTIONS,
+  PAYMENT_METHOD_OPTIONS,
   roleMayTransition,
   TRANSITION_ACTION_LABELS,
 } from '../constants/billing.constants';
 import { useOrder } from '../hooks/useOrder';
 import { useOrderBill } from '../hooks/useOrderBill';
 import { billingService } from '../services/billingService';
-import type { OrderItem, OrderStatus } from '../types/billing.types';
+import type {
+  Order,
+  OrderItem,
+  OrderItemRequest,
+  OrderStatus,
+  PaymentMethod,
+} from '../types/billing.types';
+import { PHONE_REGEX } from '../validations/billing.validation';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
@@ -42,16 +56,15 @@ const ORDER_TYPE_LABELS: Record<string, string> = Object.fromEntries(
   ORDER_TYPE_OPTIONS.map((option) => [option.value, option.label]),
 );
 
-/** Maps a transition target to the `billingService` method that drives it. */
+/** Maps a transition target to the `billingService` method that drives it. `completed` is handled separately below since it's the one transition that needs a payment method. */
 const TARGET_TO_SERVICE_CALL: Record<
-  Exclude<OrderStatus, 'pending'>,
+  Exclude<OrderStatus, 'pending' | 'completed'>,
   (orderId: string) => ReturnType<typeof billingService.fireKot>
 > = {
   kot_fired: billingService.fireKot,
   preparing: billingService.setPreparing,
   ready: billingService.setReady,
   delivered: billingService.deliver,
-  completed: billingService.complete,
   cancelled: billingService.cancel,
 };
 
@@ -60,16 +73,6 @@ function formatQuantity(quantity: string): string {
   const num = Number(quantity);
   if (!Number.isFinite(num)) return quantity;
   return num.toFixed(3).replace(/\.?0+$/, '') || '0';
-}
-
-/** `date | time` in the locale's short form — used throughout the order timeline. */
-function formatTimestamp(value: string): string {
-  return new Date(value).toLocaleString(undefined, {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }
 
 /**
@@ -94,13 +97,31 @@ export function OrderDetailPage() {
   const currentUser = useAuthStore((state) => state.user);
 
   const orderQuery = useOrder(orderId);
-  const productsQuery = useProducts();
   const order = orderQuery.data;
-  const { ensureBillDownloaded } = useOrderBill();
+  // This order's location is fixed (set at creation) — the effective,
+  // location-resolved price/discount for a product being added here should
+  // reflect that location's own overrides, same as `NewOrderPage`. Waits
+  // for the order to load rather than firing once unscoped and once
+  // location-scoped a moment later.
+  const productsQuery = useProducts(order?.locationId, { enabled: Boolean(order) });
+  const { ensureBillUploaded } = useOrderBill();
 
   const [addItemSearch, setAddItemSearch] = useState('');
   const [pendingCancel, setPendingCancel] = useState(false);
   const [showBillPreview, setShowBillPreview] = useState(false);
+  // Completion needs a payment method (+ optional discount) before it can
+  // fire — a lightweight modal step, same shape as the cancel confirmation
+  // below, rather than completing immediately like the other transitions.
+  // Discounts aren't asked here — they're set earlier, while the order was
+  // being built (order-level at creation, per-line when a line was added).
+  const [pendingComplete, setPendingComplete] = useState(false);
+  const [completionPaymentMethod, setCompletionPaymentMethod] = useState<PaymentMethod>('cash');
+  // No phone on the order (a walk-in without `customerPhoneRequired`) — ask
+  // for one right here instead of sending nowhere. Cancelling/leaving it
+  // blank sends nothing, per how this was asked for — no fallback, no retry.
+  const [whatsappPhonePrompt, setWhatsappPhonePrompt] = useState(false);
+  const [whatsappPhoneInput, setWhatsappPhoneInput] = useState('');
+  const [whatsappPhoneError, setWhatsappPhoneError] = useState<string | null>(null);
 
   const isFoodFlow = order?.kitchenEnabled ?? false;
 
@@ -111,16 +132,21 @@ export function OrderDetailPage() {
 
   const transitionMutation = useMutation({
     mutationFn: (target: Exclude<OrderStatus, 'pending'>) =>
-      TARGET_TO_SERVICE_CALL[target](orderId as string),
+      target === 'completed'
+        ? billingService.complete(orderId as string, completionPaymentMethod)
+        : TARGET_TO_SERVICE_CALL[target](orderId as string),
     onSuccess: ({ order: updatedOrder, warning, invoice }, target) => {
       invalidateOrder();
       setPendingCancel(false);
+      setPendingComplete(false);
       showToast({ tone: warning ? 'warning' : 'success', message: warning ?? 'Order updated.' });
-      // Fire-and-forget — the order is already completed regardless of
-      // whether the bill renders/uploads successfully, so a failure here
+      // Fire-and-forget, no browser download popup — just makes sure the
+      // PDF exists in S3 (for "Preview bill" reprints and the WhatsApp send
+      // button below, both of which need it). The order is already
+      // completed regardless of whether this succeeds, so a failure here
       // gets its own toast rather than looking like the completion failed.
       if (target === 'completed') {
-        ensureBillDownloaded(updatedOrder, invoice).catch((error) =>
+        ensureBillUploaded(updatedOrder, invoice).catch((error) =>
           showToast({
             tone: 'warning',
             message: `Bill not saved yet. (${describeApiError(error)})`,
@@ -131,19 +157,92 @@ export function OrderDetailPage() {
     onError: (error) => {
       showToast({ tone: 'danger', message: describeApiError(error) });
       setPendingCancel(false);
+      setPendingComplete(false);
     },
   });
 
   const addItemMutation = useMutation({
-    mutationFn: ({ productId, quantity }: { productId: string; quantity: string }) =>
-      billingService.addItem(orderId as string, { productId, quantity }),
+    mutationFn: (request: OrderItemRequest) => billingService.addItem(orderId as string, request),
     onSuccess: invalidateOrder,
     onError: (error) => showToast({ tone: 'danger', message: describeApiError(error) }),
   });
 
+  /**
+   * Client-side `wa.me` deep link, not a real WhatsApp Business API send —
+   * this tenant has no WhatsApp Business API account/credentials configured
+   * anywhere in the app, so there's nothing to call server-side yet. This
+   * opens WhatsApp (app or web) with the customer's chat pre-filled with a
+   * link to the bill PDF; the staff member still taps Send themselves.
+   * `ensureBillUploaded` guarantees the invoice has a real `pdfUrl` first —
+   * it's usually already there from completion, but re-runs safely
+   * (idempotent) if that upload hasn't finished yet or this page was
+   * reloaded.
+   *
+   * The tab is opened *synchronously* in the click handler, before any
+   * `await` — opening it inside the async `mutationFn` instead gets it
+   * silently killed by the browser's popup blocker, since by the time the
+   * upload/generate call resolves the click is no longer a "fresh" user
+   * gesture as far as the browser's concerned.
+   */
+  const sendWhatsappMutation = useMutation({
+    mutationFn: async ({ phone, tab }: { phone: string; tab: Window | null }) => {
+      const invoice = await ensureBillUploaded(order as Order);
+      const message = `Hi${order?.customerName ? ` ${order.customerName}` : ''}, here's your bill: ${invoice.pdfUrl}`;
+      const url = `https://wa.me/91${phone}?text=${encodeURIComponent(message)}`;
+      if (tab) tab.location.href = url;
+      else window.open(url, '_blank');
+    },
+    onError: (error, { tab }) => {
+      tab?.close();
+      showToast({ tone: 'danger', message: describeApiError(error) });
+    },
+  });
+
+  function openWhatsapp(phone: string) {
+    sendWhatsappMutation.mutate({ phone, tab: window.open('', '_blank') });
+  }
+
+  function handleSendWhatsapp() {
+    if (!order) return;
+    if (PHONE_REGEX.test(order.customerPhone)) {
+      openWhatsapp(order.customerPhone);
+      return;
+    }
+    setWhatsappPhoneInput('');
+    setWhatsappPhoneError(null);
+    setWhatsappPhonePrompt(true);
+  }
+
+  function submitWhatsappPhonePrompt() {
+    if (!PHONE_REGEX.test(whatsappPhoneInput)) {
+      setWhatsappPhoneError('A 10-digit number starting 6-9');
+      return;
+    }
+    setWhatsappPhonePrompt(false);
+    openWhatsapp(whatsappPhoneInput);
+  }
+
   const removeItemMutation = useMutation({
     mutationFn: (productId: string) => billingService.removeItem(orderId as string, productId),
     onSuccess: invalidateOrder,
+    onError: (error) => showToast({ tone: 'danger', message: describeApiError(error) }),
+  });
+
+  const uploadWayBillMutation = useMutation({
+    mutationFn: (file: File) => billingService.uploadWayBill(orderId as string, file),
+    onSuccess: () => {
+      invalidateOrder();
+      showToast({ tone: 'success', message: 'Way-bill uploaded.' });
+    },
+    onError: (error) => showToast({ tone: 'danger', message: describeApiError(error) }),
+  });
+
+  const removeWayBillMutation = useMutation({
+    mutationFn: () => billingService.removeWayBill(orderId as string),
+    onSuccess: () => {
+      invalidateOrder();
+      showToast({ tone: 'success', message: 'Way-bill removed.' });
+    },
     onError: (error) => showToast({ tone: 'danger', message: describeApiError(error) }),
   });
 
@@ -175,6 +274,16 @@ export function OrderDetailPage() {
           const rate = Number(item.gstRate);
           if (!rate) return '—';
           return String(Math.round(rate));
+        },
+      },
+      {
+        key: 'discountPercent',
+        header: 'Discount',
+        width: '80px',
+        render: (item) => {
+          const percent = Number(item.discountPercent);
+          if (!percent) return '—';
+          return <span className="text-danger">-{percent}%</span>;
         },
       },
       {
@@ -214,6 +323,9 @@ export function OrderDetailPage() {
   const mayCancelWithRole = mayCancel && role && roleMayTransition(role, 'cancelled');
 
   const existingProductIds = new Set(order.items.map((item) => item.productId));
+  // `order.total` already reflects every discount (item-level + order-level)
+  // — both were set while the order was being built, nothing left to net out.
+  const completionAmountToCollect = Number(order.total);
 
   const addableProducts = (productsQuery.data ?? []).filter((product) => {
     if (product.businessId !== order.businessId) return false;
@@ -222,10 +334,16 @@ export function OrderDetailPage() {
     return product.name.toLowerCase().includes(term) || product.sku.toLowerCase().includes(term);
   });
 
-  function handleAddProduct(productId: string) {
-    const existing = order?.items.find((item) => item.productId === productId);
+  function handleAddProduct(product: Product) {
+    const existing = order?.items.find((item) => item.productId === product.id);
     const nextQuantity = existing ? Number(existing.quantity) + 1 : 1;
-    addItemMutation.mutate({ productId, quantity: String(nextQuantity) });
+    // Bumping an already-added line's quantity re-sends its *current*
+    // discount (the backend's `_upsert_item` always overwrites
+    // `discount_percent` from whatever's sent, even on an existing line) —
+    // only a brand-new line falls back to this location's effective
+    // default (the product's own, or an override for this order's location).
+    const discountPercent = existing ? existing.discountPercent : product.effectiveDiscountPercent;
+    addItemMutation.mutate({ productId: product.id, quantity: String(nextQuantity), discountPercent });
   }
 
   function getItemRowActions(item: OrderItem): DataTableRowAction<OrderItem>[] {
@@ -312,7 +430,7 @@ export function OrderDetailPage() {
                       <button
                         key={product.id}
                         type="button"
-                        onClick={() => handleAddProduct(product.id)}
+                        onClick={() => handleAddProduct(product)}
                         disabled={addItemMutation.isPending}
                         className="flex flex-col items-start gap-0.5 rounded-control border border-border p-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5 disabled:opacity-50"
                       >
@@ -325,7 +443,7 @@ export function OrderDetailPage() {
                           ) : null}
                         </span>
                         <span className="text-sm font-semibold text-brand">
-                          ₹{product.sellingPrice}
+                          ₹{product.effectiveSellingPrice}
                         </span>
                       </button>
                     ))}
@@ -346,7 +464,11 @@ export function OrderDetailPage() {
                       transitionMutation.isPending && transitionMutation.variables === nextTarget
                     }
                     disabled={transitionMutation.isPending}
-                    onClick={() => transitionMutation.mutate(nextTarget)}
+                    onClick={() =>
+                      nextTarget === 'completed'
+                        ? setPendingComplete(true)
+                        : transitionMutation.mutate(nextTarget)
+                    }
                   >
                     {TRANSITION_ACTION_LABELS[nextTarget]}
                   </Button>
@@ -362,6 +484,16 @@ export function OrderDetailPage() {
                     onClick={() => setShowBillPreview(true)}
                   >
                     Preview bill
+                  </Button>
+                ) : null}
+                {order.status === 'completed' ? (
+                  <Button
+                    variant="secondary"
+                    leadingIcon={<MessageCircle size={16} />}
+                    isLoading={sendWhatsappMutation.isPending}
+                    onClick={handleSendWhatsapp}
+                  >
+                    Send via WhatsApp
                   </Button>
                 ) : null}
                 {mayCancelWithRole ? (
@@ -384,6 +516,12 @@ export function OrderDetailPage() {
                 <span>Subtotal</span>
                 <span>₹{order.subtotal}</span>
               </div>
+              {Number(order.discountPercent) > 0 ? (
+                <div className="flex justify-between text-danger">
+                  <span>Order discount ({order.discountPercent}%)</span>
+                  <span>-₹{order.discountAmount}</span>
+                </div>
+              ) : null}
               <div className="flex justify-between text-ink-soft">
                 <span>Tax</span>
                 <span>₹{order.taxTotal}</span>
@@ -448,6 +586,15 @@ export function OrderDetailPage() {
             </div>
           </Card>
 
+          <Card>
+            <WayBillUpload
+              url={order.wayBillUrl}
+              uploadedAt={order.wayBillUploadedAt}
+              onUpload={(file) => uploadWayBillMutation.mutateAsync(file)}
+              onRemove={() => removeWayBillMutation.mutateAsync()}
+            />
+          </Card>
+
           {timelineSteps.length > 1 ? (
             <Card>
               <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
@@ -483,10 +630,68 @@ export function OrderDetailPage() {
         onCancel={() => setPendingCancel(false)}
       />
 
+      <Modal
+        open={pendingComplete}
+        onOpenChange={(open) => {
+          if (!open) setPendingComplete(false);
+        }}
+        title="Complete order"
+        description={`Amount to collect: ₹${completionAmountToCollect.toFixed(2)}`}
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setPendingComplete(false)}>
+              Back
+            </Button>
+            <Button
+              isLoading={transitionMutation.isPending && transitionMutation.variables === 'completed'}
+              onClick={() => transitionMutation.mutate('completed')}
+            >
+              Confirm payment
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <Select
+            label="Payment method"
+            options={[...PAYMENT_METHOD_OPTIONS]}
+            value={completionPaymentMethod}
+            onChange={(value) => setCompletionPaymentMethod(value as PaymentMethod)}
+          />
+        </div>
+      </Modal>
+
       <OrderBillPreviewModal
         order={showBillPreview ? order : null}
         onClose={() => setShowBillPreview(false)}
       />
+
+      <Modal
+        open={whatsappPhonePrompt}
+        onOpenChange={(open) => {
+          if (!open) setWhatsappPhonePrompt(false);
+        }}
+        title="Send bill via WhatsApp"
+        description="This order has no phone number on file — enter one to send the bill to."
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setWhatsappPhonePrompt(false)}>
+              Cancel
+            </Button>
+            <Button onClick={submitWhatsappPhonePrompt}>Send</Button>
+          </>
+        }
+      >
+        <Input
+          label="Customer phone number"
+          placeholder="9876543210"
+          value={whatsappPhoneInput}
+          onChange={(event) => setWhatsappPhoneInput(event.target.value)}
+          errorMessage={whatsappPhoneError ?? undefined}
+        />
+      </Modal>
     </div>
   );
 }

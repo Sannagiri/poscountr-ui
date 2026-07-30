@@ -8,6 +8,8 @@ import type {
   LicensePlanResource,
   OrderSettings,
   OrderSettingsRequest,
+  PurchaseSettings,
+  PurchaseSettingsRequest,
   ResourceKey,
 } from '../types/settings.types';
 
@@ -116,6 +118,32 @@ function orderSettingsRequestToBody(request: OrderSettingsRequest) {
   };
 }
 
+interface PurchaseSettingsRaw {
+  id: string;
+  business_id: string;
+  reset_period: PurchaseSettings['resetPeriod'];
+  numbering_prefix: string;
+  numbering_start: string;
+}
+
+function mapPurchaseSettings(raw: PurchaseSettingsRaw): PurchaseSettings {
+  return {
+    id: raw.id,
+    businessId: raw.business_id,
+    resetPeriod: raw.reset_period,
+    numberingPrefix: raw.numbering_prefix,
+    numberingStart: raw.numbering_start,
+  };
+}
+
+function purchaseSettingsRequestToBody(request: PurchaseSettingsRequest) {
+  return {
+    reset_period: request.resetPeriod,
+    numbering_prefix: request.numberingPrefix,
+    numbering_start: request.numberingStart,
+  };
+}
+
 export const settingsService = {
   /** The acting tenant_admin's own plan & usage — every capped resource, `IsTenantAdmin`-gated server-side. */
   async getLicensePlan(): Promise<LicensePlan> {
@@ -193,5 +221,25 @@ export const settingsService = {
       ),
     );
     return mapOrderSettings(raw);
+  },
+
+  async getPurchaseSettings(businessId: string): Promise<PurchaseSettings> {
+    const raw = await unwrap<PurchaseSettingsRaw>(
+      apiClient.get(`/tenant/businesses/${businessId}/purchase-settings/`),
+    );
+    return mapPurchaseSettings(raw);
+  },
+
+  async updatePurchaseSettings(
+    businessId: string,
+    request: PurchaseSettingsRequest,
+  ): Promise<PurchaseSettings> {
+    const raw = await unwrap<PurchaseSettingsRaw>(
+      apiClient.patch(
+        `/tenant/businesses/${businessId}/purchase-settings/`,
+        purchaseSettingsRequestToBody(request),
+      ),
+    );
+    return mapPurchaseSettings(raw);
   },
 };

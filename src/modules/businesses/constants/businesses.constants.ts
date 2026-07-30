@@ -23,6 +23,23 @@ export const ENTITY_TYPE_OPTIONS: { value: EntityType; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
+/** Mirrors the backend's `apps/billing/constants.py::is_food_flow` / `FOOD_ENTITY_TYPES` — a table (floor-plan seat) only means something for a business that seats dine-in customers. Used to gate the Table layout editor and the "Table-first ordering" setting; a retail/pharmacy/grocery counter never needs either. */
+export function isDineInEntityType(entityType: EntityType | undefined): boolean {
+  return entityType === 'restaurant' || entityType === 'cafe';
+}
+
+/**
+ * Mirrors the backend's purchasing-domain gate (`apps/purchasing/`'s own
+ * entity-type check) — buy-side purchase orders/suppliers only exist for a
+ * stock-holding business; a restaurant/cafe never orders stock in this
+ * sense (its "inventory" is made-to-order menu items, not a catalog bought
+ * from a supplier). Used to gate the Suppliers/Purchase orders nav entries —
+ * see `layouts/AppShell/navConfig.tsx`'s `requiresPurchasingBusiness` flag.
+ */
+export function isPurchasingEntityType(entityType: EntityType | undefined): boolean {
+  return entityType === 'retail' || entityType === 'pharmacy' || entityType === 'grocery';
+}
+
 /** Mirrors `apps/businesses/constants.py`'s `IndianState.choices` exactly — same list used for a location's address `state` field. */
 export const INDIAN_STATE_OPTIONS: { value: IndianState; label: string }[] = [
   { value: 'AN', label: 'Andaman and Nicobar Islands' },

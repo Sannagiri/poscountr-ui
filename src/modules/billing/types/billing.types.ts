@@ -17,6 +17,9 @@ export type OrderStatus =
 
 export type OrderType = 'dine_in' | 'takeaway' | 'delivery';
 
+/** Mirrors `PaymentMethod.choices` (apps/billing/constants.py) — set only at completion. */
+export type PaymentMethod = 'cash' | 'card' | 'upi' | 'wallet' | 'other';
+
 /**
  * A priced line on an order. `name`/`unitPrice`/`gstRate` are snapshotted
  * server-side from the product at the moment it was added, so a line stays
@@ -30,6 +33,8 @@ export interface OrderItem {
   unitPrice: string;
   gstRate: string;
   quantity: string;
+  /** This line's own discount (0-100), set when the line was added — `'0.00'` when none. Already netted into `lineTotal`. */
+  discountPercent: string;
   lineTotal: string;
 }
 
@@ -52,6 +57,12 @@ export interface Order {
   locationName: string;
   status: OrderStatus;
   orderType: OrderType;
+  /** Set only at completion (see `billingService.complete`) — blank for an open or cancelled order. */
+  paymentMethod: PaymentMethod | '';
+  /** Whole-order discount (0-100), set at creation — layered on top of each line's own `discountPercent`. `'0.00'` when none. */
+  discountPercent: string;
+  /** Derived money value of `discountPercent` alone (per-line discounts are already netted into each line's `lineTotal`, never surfaced as a separate amount here). */
+  discountAmount: string;
   /** Per-business gap-less order number; `null` for orders created before this field existed. */
   orderNumber: string | null;
   /** Mirrors the business's `OrderSettings.kitchen_enabled` at read time — drives which transitions are legal next. */
@@ -71,6 +82,9 @@ export interface Order {
   customerState: string;
   note: string;
   items: OrderItem[];
+  /** Proof of transport (e-way bill) — a PDF or a phone photo of the physical copy, optional. `null` until uploaded. Unrelated to the kitchen/order-status flow above; shared with the purchasing module's own `PurchaseOrder.wayBillUrl` (same endpoint shape, same `WayBillUpload` control). */
+  wayBillUrl: string | null;
+  wayBillUploadedAt: string | null;
   kotFiredAt: string | null;
   preparingAt: string | null;
   readyAt: string | null;
@@ -80,10 +94,11 @@ export interface Order {
   createdAt: string;
 }
 
-/** One line when opening an order — `quantity` is that line's quantity, not a delta. */
+/** One line when opening an order — `quantity` is that line's quantity, not a delta. `discountPercent` (0-100, optional) is this line's own discount. */
 export interface OrderLineRequest {
   productId: string;
   quantity: string;
+  discountPercent?: string;
 }
 
 /**
@@ -112,6 +127,8 @@ export interface OrderCreateRequest {
   customerEmail?: string;
   customerGstin?: string;
   customerState?: string;
+  /** Whole-order discount (0-100, optional) — layered on top of each line's own discount. */
+  discountPercent?: string;
 }
 
 /**
@@ -123,6 +140,8 @@ export interface OrderCreateRequest {
 export interface OrderItemRequest {
   productId: string;
   quantity: string;
+  /** This line's own discount (0-100, optional) — defaults to 0 server-side. */
+  discountPercent?: string;
 }
 
 /** A kitchen line — quantity + name only, never a price (`KDSItemOutputSerializer`). */

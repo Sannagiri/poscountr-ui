@@ -91,3 +91,21 @@ export const orderSettingsFormSchema = z
   });
 
 export type OrderSettingsFormValues = z.infer<typeof orderSettingsFormSchema>;
+
+/**
+ * Mirrors the backend's purchase-settings update guard — same numbering
+ * shape `orderSettingsFormSchema` validates, minus every field that doesn't
+ * apply to a purchase order (no customer-required switches, no kitchen
+ * flow — a purchase order has neither).
+ */
+export const purchaseSettingsFormSchema = z.object({
+  resetPeriod: z.enum(['daily', 'monthly', 'yearly', 'continuous']),
+  numberingPrefix: z.string().max(12, 'At most 12 characters').optional().or(z.literal('')),
+  numberingStart: z
+    .string()
+    .min(1, 'Enter a starting number')
+    .max(10, 'At most 10 digits')
+    .regex(/^\d+$/, 'Digits only'),
+});
+
+export type PurchaseSettingsFormValues = z.infer<typeof purchaseSettingsFormSchema>;

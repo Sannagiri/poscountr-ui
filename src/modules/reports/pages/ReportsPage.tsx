@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { IndianRupee, Percent, Receipt, TrendingUp } from 'lucide-react';
 
 import type { DataTableColumn } from '@/components';
 import { Card, CardHeader, DataTable, DatePicker, PageHeader, Select, Tabs } from '@/components';
@@ -6,10 +7,22 @@ import { dateIST, toISTDate } from '@/utils/date';
 import { describeApiError } from '@/utils/errors';
 
 import { useAuthStore } from '@/modules/auth';
-import { useOrders } from '@/modules/billing';
-import { useLocations } from '@/modules/businesses';
+import { useBusinesses, useLocations } from '@/modules/businesses';
 
+import {
+  CategoryMixChart,
+  DailyTrendChart,
+  KpiStrip,
+  KpiTile,
+  PaymentMixChart,
+  RepresentativeTransactionsTable,
+  StorePerformanceChart,
+  TopProductsChart,
+} from '../components';
 import { useInvoices } from '../hooks/useInvoices';
+import { useReportsDashboard } from '../hooks/useReportsDashboard';
+import type { ReportsDashboardFilters } from '../types/reports.types';
+import { formatCompactMoney } from '../utils/reportsFormat';
 
 /**
  * When it's on, a day is compared as a plain ISO string against the two
@@ -27,25 +40,11 @@ const DATE_PRESET_OPTIONS: { value: DatePreset; label: string }[] = [
   { value: 'all', label: 'All time' },
 ];
 
-interface SalesByDayRow {
-  date: string;
-  orders: number;
-  revenue: number;
-  tax: number;
-}
-
-interface SalesByLocationRow {
-  locationId: string;
-  locationName: string;
-  orders: number;
-  revenue: number;
-}
-
-interface SalesByBusinessRow {
-  businessName: string;
-  orders: number;
-  revenue: number;
-}
+// The reports summary endpoint requires concrete `from`/`to` bounds — the
+// `all` preset (which the client-side-filtered GST tab treats as "no
+// filter") substitutes this wide fixed start instead, since there's no
+// tenant-creation date available client-side to derive a real one from.
+const ALL_TIME_FROM = '2000-01-01';
 
 interface HsnSummaryRow {
   key: string;
@@ -54,50 +53,6 @@ interface HsnSummaryRow {
   taxableValue: number;
   taxAmount: number;
 }
-
-const salesByDayColumns: DataTableColumn<SalesByDayRow>[] = [
-  {
-    key: 'date',
-    header: 'Date',
-    width: '160px',
-    render: (row) =>
-      new Date(row.date).toLocaleDateString(undefined, {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-      }),
-  },
-  { key: 'orders', header: 'Orders', width: '110px' },
-  {
-    key: 'revenue',
-    header: 'Revenue',
-    width: '1fr',
-    render: (row) => `₹${row.revenue.toFixed(2)}`,
-  },
-  { key: 'tax', header: 'Tax collected', width: '1fr', render: (row) => `₹${row.tax.toFixed(2)}` },
-];
-
-const salesByLocationColumns: DataTableColumn<SalesByLocationRow>[] = [
-  { key: 'locationName', header: 'Location', width: '1.5fr' },
-  { key: 'orders', header: 'Orders', width: '110px' },
-  {
-    key: 'revenue',
-    header: 'Revenue',
-    width: '1fr',
-    render: (row) => `₹${row.revenue.toFixed(2)}`,
-  },
-];
-
-const salesByBusinessColumns: DataTableColumn<SalesByBusinessRow>[] = [
-  { key: 'businessName', header: 'Business', width: '1.5fr' },
-  { key: 'orders', header: 'Orders', width: '110px' },
-  {
-    key: 'revenue',
-    header: 'Revenue',
-    width: '1fr',
-    render: (row) => `₹${row.revenue.toFixed(2)}`,
-  },
-];
 
 const hsnColumns: DataTableColumn<HsnSummaryRow>[] = [
   { key: 'hsnCode', header: 'HSN code', width: '140px', render: (row) => row.hsnCode || '—' },
@@ -116,20 +71,35 @@ const hsnColumns: DataTableColumn<HsnSummaryRow>[] = [
   },
 ];
 
+/** The immediately preceding period of equal length — e.g. "this month" -> "last month" of the same day-count — for the KPI strip's period-over-period deltas. */
+function previousRange(from: string, to: string): { from: string; to: string } {
+  const fromDate = new Date(`${from}T00:00:00Z`);
+  const toDate = new Date(`${to}T00:00:00Z`);
+  const lengthDays = Math.round((toDate.getTime() - fromDate.getTime()) / 86_400_000) + 1;
+  const prevTo = new Date(fromDate.getTime() - 86_400_000);
+  const prevFrom = new Date(prevTo.getTime() - (lengthDays - 1) * 86_400_000);
+  const format = (date: Date) => date.toISOString().slice(0, 10);
+  return { from: format(prevFrom), to: format(prevTo) };
+}
+
 /**
- * Sales summary (by day / business / location) + GST summary (GSTR-1-style
- * HSN-wise breakdown) — both computed client-side from data the app already
- * fetches elsewhere (`useOrders`, the new `useInvoices`) rather than
- * waiting on a dedicated backend `reports` module, which doesn't exist yet
- * (see `POSCountr-UI-Planning/poscountr-ui-page-inventory.md` §D6). GST
- * figures come from real generated `Invoice` rows — CGST/SGST/IGST split
- * and the HSN summary are both computed server-side at invoice-generation
- * time — not re-derived from raw order totals, so they match what a GSTR-1
- * filing would actually need.
+ * Sales summary (an analytics dashboard — KPIs with period-over-period
+ * deltas, a daily trend chart, category/payment mix, top products, and
+ * capped tables) + GST summary (GSTR-1-style HSN-wise breakdown).
  *
- * One date-range control governs both tabs; each tab filters its own date
- * field client-side (`Order.tokenDate` for sales, `Invoice.issuedAt`
- * converted to its IST calendar day for GST — see `toISTDate`).
+ * Sales summary is powered by a dedicated backend aggregation endpoint
+ * (`GET /tenant/reports/summary`, see `apps/reports/`) rather than fetching
+ * every order and computing client-side — the old approach didn't scale
+ * past a few hundred orders and would have forked from a future CSV/Word
+ * export's numbers. GST summary is unchanged: computed client-side from
+ * real generated `Invoice` rows (`useInvoices`) — CGST/SGST/IGST split and
+ * the HSN summary are both computed server-side at invoice-generation time,
+ * not re-derived from raw order totals, so they match what a GSTR-1 filing
+ * would actually need.
+ *
+ * One date-range control governs both tabs; the sales tab sends its bounds
+ * straight to the backend, the GST tab still filters `Invoice.issuedAt`
+ * (converted to its IST calendar day) client-side — see `toISTDate`.
  */
 export function ReportsPage() {
   const user = useAuthStore((state) => state.user);
@@ -138,6 +108,19 @@ export function ReportsPage() {
   const [datePreset, setDatePreset] = useState<DatePreset>('month');
   const [rangeFrom, setRangeFrom] = useState(() => dateIST(-6));
   const [rangeTo, setRangeTo] = useState(() => dateIST());
+
+  // A manager's data is already scoped server-side to their own location
+  // regardless of `business_id`, so the picker (and the filter itself) is
+  // tenant_admin-only — same gating `NewOrderPage` uses for its own business
+  // picker. Always resolves to one concrete business (no blended "all
+  // businesses" option) so neither tab's numbers ever mix businesses.
+  const businessesQuery = useBusinesses({ enabled: isTenantAdmin });
+  const [selectedBusinessId, setSelectedBusinessId] = useState('');
+  useEffect(() => {
+    if (selectedBusinessId || !businessesQuery.data?.length) return;
+    setSelectedBusinessId(businessesQuery.data[0].id);
+  }, [businessesQuery.data, selectedBusinessId]);
+  const businessId = isTenantAdmin ? selectedBusinessId || undefined : undefined;
 
   const dateBounds = useMemo(() => {
     if (datePreset === 'today') {
@@ -154,145 +137,33 @@ export function ReportsPage() {
   }, [datePreset, rangeFrom, rangeTo]);
 
   // ─── Sales summary ──────────────────────────────────────────────────────
-  const ordersQuery = useOrders();
-
-  const dateFilteredOrders = useMemo(() => {
-    const orders = ordersQuery.data ?? [];
-    if (!dateBounds) return orders;
-    return orders.filter(
-      (order) =>
-        order.tokenDate !== null &&
-        order.tokenDate >= dateBounds.from &&
-        order.tokenDate <= dateBounds.to,
-    );
-  }, [ordersQuery.data, dateBounds]);
-
-  // "Sales" means revenue actually booked — cancelled orders never
-  // completed, and a still-open order hasn't been paid for yet.
-  const completedOrders = useMemo(
-    () => dateFilteredOrders.filter((order) => order.status === 'completed'),
-    [dateFilteredOrders],
+  const resolvedBounds = dateBounds ?? { from: ALL_TIME_FROM, to: dateIST() };
+  const currentFilters: ReportsDashboardFilters = { ...resolvedBounds, businessId };
+  const previousFilters: ReportsDashboardFilters = useMemo(
+    () => ({ ...previousRange(resolvedBounds.from, resolvedBounds.to), businessId }),
+    [resolvedBounds.from, resolvedBounds.to, businessId],
   );
 
-  const cancelledCount = useMemo(
-    () => dateFilteredOrders.filter((order) => order.status === 'cancelled').length,
-    [dateFilteredOrders],
-  );
-
-  const salesStats = useMemo(() => {
-    const revenue = completedOrders.reduce((sum, order) => sum + Number(order.total), 0);
-    const tax = completedOrders.reduce((sum, order) => sum + Number(order.taxTotal), 0);
-    const count = completedOrders.length;
-    return { revenue, tax, count, average: count > 0 ? revenue / count : 0 };
-  }, [completedOrders]);
-
-  const salesByDay = useMemo(() => {
-    const byDate = new Map<string, SalesByDayRow>();
-    for (const order of completedOrders) {
-      const date = order.tokenDate ?? 'unknown';
-      const row = byDate.get(date) ?? { date, orders: 0, revenue: 0, tax: 0 };
-      row.orders += 1;
-      row.revenue += Number(order.total);
-      row.tax += Number(order.taxTotal);
-      byDate.set(date, row);
-    }
-    return Array.from(byDate.values()).sort((a, b) => b.date.localeCompare(a.date));
-  }, [completedOrders]);
-
-  const salesByLocation = useMemo(() => {
-    const byLocation = new Map<string, SalesByLocationRow>();
-    for (const order of completedOrders) {
-      const row = byLocation.get(order.locationId) ?? {
-        locationId: order.locationId,
-        locationName: order.locationName,
-        orders: 0,
-        revenue: 0,
-      };
-      row.orders += 1;
-      row.revenue += Number(order.total);
-      byLocation.set(order.locationId, row);
-    }
-    return Array.from(byLocation.values()).sort((a, b) => b.revenue - a.revenue);
-  }, [completedOrders]);
+  const dashboardQuery = useReportsDashboard(currentFilters);
+  const previousDashboardQuery = useReportsDashboard(previousFilters);
+  const dashboard = dashboardQuery.data;
 
   // A manager only ever sees their own single location's orders anyway
-  // (server-side scoping), and `useLocations` is `IsTenantAdmin`-gated —
-  // this breakdown only makes sense, and is only fetchable, for a
-  // tenant_admin with more than one business.
+  // (server-side scoping), and `useLocations` is `IsTenantAdmin`-gated — the
+  // store-performance breakdown only makes sense, and is only fetchable, for
+  // a tenant_admin with more than one location. Filtered to the selected
+  // business first — otherwise a tenant with several businesses would count
+  // (and label) locations that don't even belong to the business currently
+  // on screen.
   const locationsQuery = useLocations({ enabled: isTenantAdmin });
-  const businessNameByLocation = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const location of locationsQuery.data ?? []) map.set(location.id, location.businessName);
-    return map;
-  }, [locationsQuery.data]);
-
-  const salesByBusiness = useMemo(() => {
-    if (!isTenantAdmin) return [];
-    const byBusiness = new Map<string, SalesByBusinessRow>();
-    for (const order of completedOrders) {
-      const businessName = businessNameByLocation.get(order.locationId) ?? 'Unknown';
-      const row = byBusiness.get(businessName) ?? { businessName, orders: 0, revenue: 0 };
-      row.orders += 1;
-      row.revenue += Number(order.total);
-      byBusiness.set(businessName, row);
-    }
-    return Array.from(byBusiness.values()).sort((a, b) => b.revenue - a.revenue);
-  }, [isTenantAdmin, completedOrders, businessNameByLocation]);
-
-  const salesBreakdownTabs = [
-    {
-      value: 'day',
-      label: 'By day',
-      content: (
-        <Card>
-          <DataTable
-            columns={salesByDayColumns}
-            data={salesByDay}
-            getRowKey={(row) => row.date}
-            isLoading={ordersQuery.isLoading}
-            emptyTitle="No completed orders in this range"
-          />
-        </Card>
-      ),
-    },
-    {
-      value: 'location',
-      label: 'By location',
-      content: (
-        <Card>
-          <DataTable
-            columns={salesByLocationColumns}
-            data={salesByLocation}
-            getRowKey={(row) => row.locationId}
-            isLoading={ordersQuery.isLoading}
-            emptyTitle="No completed orders in this range"
-          />
-        </Card>
-      ),
-    },
-    ...(isTenantAdmin
-      ? [
-          {
-            value: 'business',
-            label: 'By business',
-            content: (
-              <Card>
-                <DataTable
-                  columns={salesByBusinessColumns}
-                  data={salesByBusiness}
-                  getRowKey={(row) => row.businessName}
-                  isLoading={ordersQuery.isLoading || locationsQuery.isLoading}
-                  emptyTitle="No completed orders in this range"
-                />
-              </Card>
-            ),
-          },
-        ]
-      : []),
-  ];
+  const scopedLocations = useMemo(
+    () => (locationsQuery.data ?? []).filter((location) => !businessId || location.businessId === businessId),
+    [locationsQuery.data, businessId],
+  );
+  const showStorePerformance = isTenantAdmin && scopedLocations.length > 1;
 
   // ─── GST summary ─────────────────────────────────────────────────────────
-  const invoicesQuery = useInvoices();
+  const invoicesQuery = useInvoices({ businessId });
 
   const dateFilteredInvoices = useMemo(() => {
     const invoices = invoicesQuery.data ?? [];
@@ -360,6 +231,14 @@ export function ReportsPage() {
             />
           </>
         ) : null}
+        {isTenantAdmin && businessesQuery.data?.length ? (
+          <Select
+            className="w-auto min-w-[9.5rem]"
+            value={selectedBusinessId}
+            onChange={(value) => setSelectedBusinessId(value)}
+            options={businessesQuery.data.map((business) => ({ value: business.id, label: business.name }))}
+          />
+        ) : null}
       </div>
 
       <Tabs
@@ -369,36 +248,64 @@ export function ReportsPage() {
             label: 'Sales summary',
             content: (
               <div className="flex flex-col gap-3.5">
-                {ordersQuery.isError ? (
-                  <p className="text-sm text-danger">{describeApiError(ordersQuery.error)}</p>
+                {dashboardQuery.isError ? (
+                  <p className="text-sm text-danger">{describeApiError(dashboardQuery.error)}</p>
                 ) : null}
-                <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
-                  <Card>
-                    <p className="text-xs font-medium text-ink-soft">Revenue</p>
-                    <p className="mt-2 font-display text-2xl font-extrabold text-ink">
-                      ₹{salesStats.revenue.toFixed(2)}
-                    </p>
-                  </Card>
-                  <Card>
-                    <p className="text-xs font-medium text-ink-soft">Completed orders</p>
-                    <p className="mt-2 font-display text-2xl font-extrabold text-ink">
-                      {salesStats.count}
-                    </p>
-                  </Card>
-                  <Card>
-                    <p className="text-xs font-medium text-ink-soft">Average order value</p>
-                    <p className="mt-2 font-display text-2xl font-extrabold text-ink">
-                      ₹{salesStats.average.toFixed(2)}
-                    </p>
-                  </Card>
-                  <Card>
-                    <p className="text-xs font-medium text-ink-soft">Cancelled orders</p>
-                    <p className="mt-2 font-display text-2xl font-extrabold text-ink">
-                      {cancelledCount}
-                    </p>
-                  </Card>
+
+                <KpiStrip
+                  current={dashboard?.kpi}
+                  previous={previousDashboardQuery.data?.kpi ?? null}
+                  isLoading={dashboardQuery.isLoading}
+                />
+
+                <DailyTrendChart
+                  data={dashboard?.dailyTrend ?? []}
+                  isLoading={dashboardQuery.isLoading}
+                  isError={dashboardQuery.isError}
+                  error={dashboardQuery.error}
+                />
+
+                <div
+                  className={`grid grid-cols-1 gap-3.5 sm:grid-cols-2 ${
+                    showStorePerformance ? 'lg:grid-cols-3' : ''
+                  }`}
+                >
+                  <CategoryMixChart
+                    data={dashboard?.categoryMix ?? []}
+                    isLoading={dashboardQuery.isLoading}
+                    isError={dashboardQuery.isError}
+                    error={dashboardQuery.error}
+                  />
+                  <PaymentMixChart
+                    data={dashboard?.paymentMix ?? []}
+                    isLoading={dashboardQuery.isLoading}
+                    isError={dashboardQuery.isError}
+                    error={dashboardQuery.error}
+                  />
+                  {showStorePerformance ? (
+                    <StorePerformanceChart
+                      data={dashboard?.storePerformance ?? []}
+                      locations={scopedLocations}
+                      isLoading={dashboardQuery.isLoading}
+                      isError={dashboardQuery.isError}
+                      error={dashboardQuery.error}
+                    />
+                  ) : null}
                 </div>
-                <Tabs items={salesBreakdownTabs} />
+
+                <TopProductsChart
+                  data={dashboard?.topProducts ?? []}
+                  isLoading={dashboardQuery.isLoading}
+                  isError={dashboardQuery.isError}
+                  error={dashboardQuery.error}
+                />
+
+                <RepresentativeTransactionsTable
+                  data={dashboard?.representativeTransactions ?? []}
+                  locations={scopedLocations}
+                  isLoading={dashboardQuery.isLoading}
+                  errorMessage={dashboardQuery.isError ? describeApiError(dashboardQuery.error) : null}
+                />
               </div>
             ),
           },
@@ -411,34 +318,38 @@ export function ReportsPage() {
                   <p className="text-sm text-danger">{describeApiError(invoicesQuery.error)}</p>
                 ) : null}
                 <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
-                  <Card>
-                    <p className="text-xs font-medium text-ink-soft">Invoices</p>
-                    <p className="mt-2 font-display text-2xl font-extrabold text-ink">
-                      {gstStats.count}
-                    </p>
-                  </Card>
-                  <Card>
-                    <p className="text-xs font-medium text-ink-soft">Taxable value</p>
-                    <p className="mt-2 font-display text-2xl font-extrabold text-ink">
-                      ₹{gstStats.taxable.toFixed(2)}
-                    </p>
-                  </Card>
-                  <Card>
-                    <p className="text-xs font-medium text-ink-soft">Tax collected</p>
-                    <p className="mt-2 font-display text-2xl font-extrabold text-ink">
-                      ₹{(gstStats.cgst + gstStats.sgst + gstStats.igst).toFixed(2)}
-                    </p>
-                    <p className="mt-1 text-[11px] text-ink-faint">
-                      CGST ₹{gstStats.cgst.toFixed(2)} · SGST ₹{gstStats.sgst.toFixed(2)} · IGST ₹
-                      {gstStats.igst.toFixed(2)}
-                    </p>
-                  </Card>
-                  <Card>
-                    <p className="text-xs font-medium text-ink-soft">Total invoiced</p>
-                    <p className="mt-2 font-display text-2xl font-extrabold text-ink">
-                      ₹{gstStats.total.toFixed(2)}
-                    </p>
-                  </Card>
+                  <KpiTile
+                    label="Invoices"
+                    value={String(gstStats.count)}
+                    icon={Receipt}
+                    tint="accent"
+                    deltaPercent={null}
+                    goodDirection="neutral"
+                  />
+                  <KpiTile
+                    label="Taxable value"
+                    value={formatCompactMoney(gstStats.taxable)}
+                    icon={IndianRupee}
+                    tint="brand"
+                    deltaPercent={null}
+                    goodDirection="neutral"
+                  />
+                  <KpiTile
+                    label="Tax collected"
+                    value={formatCompactMoney(gstStats.cgst + gstStats.sgst + gstStats.igst)}
+                    icon={Percent}
+                    tint="warning"
+                    deltaPercent={null}
+                    goodDirection="neutral"
+                  />
+                  <KpiTile
+                    label="Total invoiced"
+                    value={formatCompactMoney(gstStats.total)}
+                    icon={TrendingUp}
+                    tint="success"
+                    deltaPercent={null}
+                    goodDirection="neutral"
+                  />
                 </div>
                 <Card>
                   <CardHeader

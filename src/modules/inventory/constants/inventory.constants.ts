@@ -8,9 +8,21 @@ export const INVENTORY_ROUTES = {
 /** TanStack Query cache keys for this module — shared between hooks/pages so invalidation stays consistent. Batches are keyed per-product (only fetched when that product's Batches modal is open), not listed tenant-wide. */
 export const INVENTORY_QUERY_KEYS = {
   products: ['inventory', 'products'] as const,
+  /** Distinct from `products` — the location-scoped effective view (excludes
+   * unavailable-there products, resolves override price/discount) is a
+   * different response for the same URL's worth of data, not a filtered
+   * view of the same cached list. `ProductFormModal`'s "reads from the
+   * shared products query" cache-sharing trick expects the raw `products`
+   * key, so this must never collapse into it. */
+  productsForLocation: (locationId: string) => ['inventory', 'products', 'location', locationId] as const,
   categories: ['inventory', 'categories'] as const,
   batches: (productId: string) => ['inventory', 'products', productId, 'batches'] as const,
+  productLocations: (productId: string) => ['inventory', 'products', productId, 'locations'] as const,
 };
+
+/** Mirrors the backend's own limits (`apps/storage/utils.py::validate_image_file`) — client-side for instant feedback, not a replacement for the server's own check. Shared by `ProductImageField` (uploads against an existing product) and `ProductFormModal`'s create-mode picker (stages a file locally, no product to upload against yet). */
+export const MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024;
+export const ACCEPTED_PRODUCT_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 /** Mirrors the backend's `Unit.choices` (apps/inventory/constants.py) — order shown in the picker. */
 export const UNIT_OPTIONS: { value: Unit; label: string }[] = [

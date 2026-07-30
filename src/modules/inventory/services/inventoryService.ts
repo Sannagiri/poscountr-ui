@@ -9,6 +9,8 @@ import type {
   ImportRowError,
   PharmacySchedule,
   Product,
+  ProductLocationOverrideRequest,
+  ProductLocationOverrideRow,
   ProductRequest,
   ProductStockRow,
   StockAdjustRequest,
@@ -57,6 +59,9 @@ interface ProductRaw {
   cost_price: string | null;
   gst_rate: string;
   hsn_code: string;
+  default_discount_percent: string;
+  effective_selling_price: string;
+  effective_discount_percent: string;
   description: string;
   image_url: string;
   is_stock_tracked: boolean;
@@ -87,6 +92,9 @@ function mapProduct(raw: ProductRaw): Product {
     costPrice: raw.cost_price,
     gstRate: raw.gst_rate,
     hsnCode: raw.hsn_code,
+    defaultDiscountPercent: raw.default_discount_percent,
+    effectiveSellingPrice: raw.effective_selling_price,
+    effectiveDiscountPercent: raw.effective_discount_percent,
     description: raw.description,
     imageUrl: raw.image_url,
     isStockTracked: raw.is_stock_tracked,
@@ -117,6 +125,7 @@ function productRequestToBody(request: Partial<ProductRequest>) {
     cost_price: request.costPrice,
     gst_rate: request.gstRate,
     hsn_code: request.hsnCode,
+    default_discount_percent: request.defaultDiscountPercent,
     description: request.description,
     is_veg: request.isVeg,
     kitchen_station: request.kitchenStation,
@@ -128,6 +137,35 @@ function productRequestToBody(request: Partial<ProductRequest>) {
     reorder_level: request.reorderLevel,
     location_id: request.locationId,
   };
+}
+
+interface ProductLocationOverrideRowRaw {
+  location_id: string;
+  location_name: string;
+  is_available: boolean;
+  selling_price: string | null;
+  default_discount_percent: string | null;
+  has_override: boolean;
+}
+
+function mapProductLocationOverrideRow(raw: ProductLocationOverrideRowRaw): ProductLocationOverrideRow {
+  return {
+    locationId: raw.location_id,
+    locationName: raw.location_name,
+    isAvailable: raw.is_available,
+    sellingPrice: raw.selling_price,
+    defaultDiscountPercent: raw.default_discount_percent,
+    hasOverride: raw.has_override,
+  };
+}
+
+/** Only includes keys actually present on `request` — an explicit `null` still round-trips (clears that override field), an omitted key stays omitted (leaves it unchanged), matching `ProductLocationOverrideInputSerializer`'s partial semantics on the backend. */
+function productLocationOverrideRequestToBody(request: ProductLocationOverrideRequest) {
+  const body: Record<string, unknown> = {};
+  if ('isAvailable' in request) body.is_available = request.isAvailable;
+  if ('sellingPrice' in request) body.selling_price = request.sellingPrice;
+  if ('defaultDiscountPercent' in request) body.default_discount_percent = request.defaultDiscountPercent;
+  return body;
 }
 
 interface StockItemRaw {
@@ -191,9 +229,18 @@ function mapImportReport(raw: ImportReportRaw): ImportReport {
 }
 
 export const inventoryService = {
-  /** No pagination, no filter params — the backend returns everything visible to the actor (manager pre-scoped to their business); filter/search client-side. */
-  async listProducts(): Promise<Product[]> {
-    const body = await unwrap<ProductRaw[]>(apiClient.get('/tenant/products/'));
+  /**
+   * No pagination — the backend returns everything visible to the actor
+   * (manager pre-scoped to their business); filter/search client-side.
+   * `locationId` omitted → the raw master catalog. Passed → the effective
+   * per-location view (see `Product.effectiveSellingPrice`'s own comment).
+   */
+  async listProducts(locationId?: string): Promise<Product[]> {
+    const body = await unwrap<ProductRaw[]>(
+      apiClient.get('/tenant/products/', {
+        params: locationId ? { location_id: locationId } : undefined,
+      }),
+    );
     return body.map(mapProduct);
   },
 
@@ -235,6 +282,34 @@ export const inventoryService = {
   /** Distinct non-empty `category` values across the actor's visible products — feeds the "existing or free-text" category field's `<datalist>` suggestions. */
   async listCategories(): Promise<string[]> {
     return unwrap<string[]>(apiClient.get('/tenant/products/categories/'));
+  },
+
+  /** One row per active location of the product's business — inherited (master) defaults where no override exists. Powers `ProductLocationsModal`. */
+  async listProductLocations(productId: string): Promise<ProductLocationOverrideRow[]> {
+    const body = await unwrap<ProductLocationOverrideRowRaw[]>(
+      apiClient.get(`/tenant/products/${productId}/locations/`),
+    );
+    return body.map(mapProductLocationOverrideRow);
+  },
+
+  /** Partial upsert of one location's override — see `ProductLocationOverrideRequest`'s own doc for omit-vs-null semantics. */
+  async upsertProductLocationOverride(
+    productId: string,
+    locationId: string,
+    request: ProductLocationOverrideRequest,
+  ): Promise<ProductLocationOverrideRow> {
+    const raw = await unwrap<ProductLocationOverrideRowRaw>(
+      apiClient.post(
+        `/tenant/products/${productId}/locations/${locationId}/`,
+        productLocationOverrideRequestToBody(request),
+      ),
+    );
+    return mapProductLocationOverrideRow(raw);
+  },
+
+  /** Removes a location's override entirely — back to fully inheriting the master product. Idempotent. */
+  async clearProductLocationOverride(productId: string, locationId: string): Promise<void> {
+    await apiClient.delete(`/tenant/products/${productId}/locations/${locationId}/`);
   },
 
   /** Sets the *absolute* quantity at one location — rejected server-side (400) if the product is batch-tracked; use `upsertBatch` for those instead. */

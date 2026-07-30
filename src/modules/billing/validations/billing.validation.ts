@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-/** `OrderService`'s phone check normalizes to exactly 10 digits starting 6-9 — mirrored here for instant feedback before the round-trip. */
-const PHONE_REGEX = /^[6-9]\d{9}$/;
+/** `OrderService`'s phone check normalizes to exactly 10 digits starting 6-9 — mirrored here for instant feedback before the round-trip. Exported for `OrderDetailPage`'s WhatsApp-send phone prompt, which needs the same validation outside a form schema. */
+export const PHONE_REGEX = /^[6-9]\d{9}$/;
 
 /** Same decimal(_,3) quantity shape `inventory.validation.ts`'s `QUANTITY_REGEX` already established — order line quantities are `OrderLineInputSerializer`'s `DecimalField(max_digits=12, decimal_places=3)`. */
 const QUANTITY_REGEX = /^\d+(\.\d{1,3})?$/;

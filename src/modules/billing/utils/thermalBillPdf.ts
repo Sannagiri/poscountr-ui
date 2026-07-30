@@ -164,6 +164,12 @@ interface ItemColumns {
  * numeric columns' own widest realistic value still fits with room to spare
  * — see the measured-width check that motivated these specific fractions.
  */
+/** `"Margherita Pizza"` -> `"Margherita Pizza (-20%)"` when the line carries its own discount — `lineTotal` already nets it in, this just explains why qty × rate doesn't match Amt at a glance. */
+function itemNameWithDiscount(item: Order['items'][number]): string {
+  const percent = Number(item.discountPercent);
+  return percent > 0 ? `${item.name} (-${formatRate(item.discountPercent)}%)` : item.name;
+}
+
 function buildItemColumns(order: Order, contentWidthMm: number): ItemColumns {
   const rates = new Set(order.items.map((item) => item.gstRate));
   const isUniformRate = rates.size <= 1;
@@ -175,7 +181,12 @@ function buildItemColumns(order: Order, contentWidthMm: number): ItemColumns {
       aligns: ['left', 'right', 'right', 'right'],
       widths,
       nameColumnIndex: 0,
-      cellsFor: (item) => [item.name, formatQuantity(item.quantity), item.unitPrice, item.lineTotal],
+      cellsFor: (item) => [
+        itemNameWithDiscount(item),
+        formatQuantity(item.quantity),
+        item.unitPrice,
+        item.lineTotal,
+      ],
     };
   }
 
@@ -186,7 +197,7 @@ function buildItemColumns(order: Order, contentWidthMm: number): ItemColumns {
     widths,
     nameColumnIndex: 0,
     cellsFor: (item) => [
-      item.name,
+      itemNameWithDiscount(item),
       formatQuantity(item.quantity),
       item.unitPrice,
       formatRate(item.gstRate),
@@ -253,6 +264,9 @@ function buildBlocks(measure: jsPDF, contentWidthMm: number, input: ThermalBillI
   // rate is only stated here (CGST @2.5%) when every line shares one GST
   // rate; a mixed-rate order already carries each line's rate in its own
   // "GST%" column above, so the totals here stay plain.
+  if (Number(invoice.discountAmount) > 0) {
+    blocks.push({ kind: 'text', lines: [`Order discount: -${invoice.discountAmount}`], align: 'right' });
+  }
   blocks.push({ kind: 'text', lines: [`Taxable value: ${invoice.taxableValue}`], align: 'right' });
   const uniformRate = isUniformRate ? formatRate(order.items[0]?.gstRate ?? '0') : null;
   if (invoice.isInterstate) {

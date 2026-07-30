@@ -8,7 +8,7 @@ import { describeApiError } from '@/utils/errors';
 import { toneForStatus } from '@/utils/status';
 
 import { useAuthStore } from '@/modules/auth';
-import type { BusinessEntity } from '@/modules/businesses';
+import type { BusinessEntity, EntityType } from '@/modules/businesses';
 import { ChooseBusinessModal, useBusinesses } from '@/modules/businesses';
 
 import { ImportProductsModal } from '../components/ImportProductsModal';
@@ -82,6 +82,9 @@ export function ProductsPage() {
 
   const [formTarget, setFormTarget] = useState<Product | 'create' | null>(null);
   const [formBusinessId, setFormBusinessId] = useState<string | undefined>(undefined);
+  const [formBusinessEntityType, setFormBusinessEntityType] = useState<EntityType | undefined>(
+    undefined,
+  );
   const [businessPickerFor, setBusinessPickerFor] = useState<BusinessPickerFor>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importBusinessId, setImportBusinessId] = useState<string | undefined>(undefined);
@@ -111,7 +114,11 @@ export function ProductsPage() {
     if (isTenantAdmin) {
       setBusinessPickerFor('create');
     } else {
+      // A manager can't call `/tenant/businesses/` at all, so their own
+      // business's `entityType` isn't knowable client-side here — the form
+      // falls back to its universal-fields-only create view.
       setFormBusinessId(undefined);
+      setFormBusinessEntityType(undefined);
       setFormTarget('create');
     }
   }
@@ -297,6 +304,7 @@ export function ProductsPage() {
         onContinue={(business: BusinessEntity) => {
           if (businessPickerFor === 'create') {
             setFormBusinessId(business.id);
+            setFormBusinessEntityType(business.entityType);
             setFormTarget('create');
           } else if (businessPickerFor === 'import') {
             setImportBusinessId(business.id);
@@ -309,6 +317,7 @@ export function ProductsPage() {
       <ProductFormModal
         target={formTarget}
         businessId={formBusinessId}
+        businessEntityType={formBusinessEntityType}
         onOpenChange={(open) => {
           if (!open) setFormTarget(null);
         }}

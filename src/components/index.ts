@@ -32,3 +32,4 @@ export * from './Tabs';
 export * from './Toast';
 export * from './Tooltip';
 export * from './UsageMeter';
+export * from './WayBillUpload';

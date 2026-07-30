@@ -15,6 +15,8 @@ export type {
   ImportRowError,
   PharmacySchedule,
   Product,
+  ProductLocationOverrideRequest,
+  ProductLocationOverrideRow,
   ProductRequest,
   ProductStockRow,
   StockAdjustRequest,

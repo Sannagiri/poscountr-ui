@@ -8,24 +8,29 @@ export interface ChooseBusinessModalProps {
   open: boolean;
   businesses: BusinessEntity[];
   isLoading?: boolean;
+  /** Defaults to the original `LocationsPage` copy — override for any other caller. */
+  title?: string;
+  /** Shown only once there's a real choice to make (`businesses.length > 0`). */
+  description?: string;
   onOpenChange: (open: boolean) => void;
   onContinue: (business: BusinessEntity) => void;
 }
 
 /**
- * The first step of `LocationsPage`'s "Add location" flow — a location
- * always belongs to a business, but that flat page has no business already
- * in context the way `BusinessesPage`'s nested "N locations" button does.
- * This asks which business, then hands off to `LocationsModal` (opened with
- * `startInCreateForm`) for the actual seven-field form — kept as its own
- * small step rather than folding a business picker into `LocationsModal`
- * itself, since every other caller of that modal already has a business
- * chosen before it opens.
+ * A "which business is this for?" first step, originally built for
+ * `LocationsPage`'s "Add location" flow — a location always belongs to a
+ * business, but that flat page has no business already in context the way
+ * `BusinessesPage`'s nested "N locations" button does. Also reused by
+ * `ProductsPage`/`SuppliersPage` for the same reason (each row's create flow
+ * has no business in context either) — `title`/`description` let each caller
+ * supply its own copy instead of inheriting the Locations-specific wording.
  */
 export function ChooseBusinessModal({
   open,
   businesses,
   isLoading = false,
+  title = 'Add location',
+  description = 'Which business is this location for?',
   onOpenChange,
   onContinue,
 }: ChooseBusinessModalProps) {
@@ -42,8 +47,8 @@ export function ChooseBusinessModal({
     <Modal
       open={open}
       onOpenChange={handleOpenChange}
-      title="Add location"
-      description={businesses.length > 0 ? 'Which business is this location for?' : undefined}
+      title={title}
+      description={businesses.length > 0 ? description : undefined}
       size="sm"
       footer={
         businesses.length > 0 ? (

@@ -11,15 +11,6 @@ import { buildThermalBillPdf } from '../utils/thermalBillPdf';
 
 import { useQueryClient } from '@tanstack/react-query';
 
-function triggerBrowserDownload(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
 function billFilename(invoice: Invoice): string {
   return `${invoice.invoiceNumber.replace(/\//g, '-')}.pdf`;
 }
@@ -45,31 +36,28 @@ async function buildBillBlob(order: Order, invoice: Invoice): Promise<Blob> {
 
 /**
  * The one place that decides whether an order's bill needs to be
- * (re-)rendered, or already exists in S3 — used both right after an order
- * completes (automatic) and from a manual "Download bill" button (recovery,
- * reprints). Never renders/uploads twice for the same invoice: a non-empty
- * `pdfUrl` always means the PDF already made it to S3.
+ * (re-)rendered, or already exists in S3 — used right after an order
+ * completes so the PDF is ready in S3 (for reprints, and for the WhatsApp
+ * "send bill" link, which needs a real URL to share) without popping a
+ * browser download on every completion. Never renders/uploads twice for
+ * the same invoice: a non-empty `pdfUrl` always means the PDF already made
+ * it to S3.
  */
 export function useOrderBill() {
   const queryClient = useQueryClient();
 
-  const ensureBillDownloaded = useCallback(
-    async (order: Order, knownInvoice?: Invoice | null): Promise<void> => {
+  const ensureBillUploaded = useCallback(
+    async (order: Order, knownInvoice?: Invoice | null): Promise<Invoice> => {
       // Idempotent on the backend — reuses the invoice `OrderCompleteView`
       // already generated, or fetches it fresh (e.g. after a page reload).
       const invoice = knownInvoice ?? (await invoiceService.generateInvoice(order.id));
-
-      if (invoice.pdfUrl) {
-        window.open(invoice.pdfUrl, '_blank');
-        return;
-      }
+      if (invoice.pdfUrl) return invoice;
 
       const blob = await buildBillBlob(order, invoice);
-      triggerBrowserDownload(blob, billFilename(invoice));
-
       const file = new File([blob], billFilename(invoice), { type: 'application/pdf' });
-      await invoiceService.uploadInvoicePdf(invoice.id, file);
+      const uploaded = await invoiceService.uploadInvoicePdf(invoice.id, file);
       queryClient.invalidateQueries({ queryKey: ['reports', 'invoices'] });
+      return uploaded;
     },
     [queryClient],
   );
@@ -90,7 +78,7 @@ export function useOrderBill() {
     [],
   );
 
-  return { ensureBillDownloaded, previewBill };
+  return { ensureBillUploaded, previewBill };
 }
 
 export { billFilename };

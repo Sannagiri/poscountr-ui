@@ -1,6 +1,19 @@
 import { apiClient, unwrap } from '@/services/apiClient';
 
-import type { Invoice, InvoiceHsnLine, InvoiceListFilters } from '../types/reports.types';
+import type {
+  CategoryMixRow,
+  DailyTrendPoint,
+  Invoice,
+  InvoiceHsnLine,
+  InvoiceListFilters,
+  PaymentMixRow,
+  ReportsDashboardFilters,
+  ReportsDashboardKpi,
+  ReportsDashboardSummary,
+  RepresentativeTransaction,
+  StorePerformanceRow,
+  TopProductRow,
+} from '../types/reports.types';
 
 /**
  * All calls to `/tenant/invoices/` live here — components and hooks never
@@ -48,6 +61,7 @@ export interface InvoiceRaw {
   customer_state: string;
   business_state: string;
   is_interstate: boolean;
+  discount_amount: string;
   taxable_value: string;
   cgst_amount: string;
   sgst_amount: string;
@@ -83,6 +97,7 @@ export function mapInvoice(raw: InvoiceRaw): Invoice {
     customerState: raw.customer_state,
     businessState: raw.business_state,
     isInterstate: raw.is_interstate,
+    discountAmount: raw.discount_amount,
     taxableValue: raw.taxable_value,
     cgstAmount: raw.cgst_amount,
     sgstAmount: raw.sgst_amount,
@@ -92,6 +107,156 @@ export function mapInvoice(raw: InvoiceRaw): Invoice {
     pdfUrl: raw.pdf_url,
     pdfUploadedAt: raw.pdf_uploaded_at,
     hsnSummary: raw.hsn_summary.map(mapHsnLine),
+  };
+}
+
+interface ReportsKpiRaw {
+  gross_sales: string;
+  discount_total: string;
+  net_sales: string;
+  transaction_count: number;
+  average_order_value: string;
+  units_sold: string;
+  cancelled_count: number;
+  cancelled_value: string;
+}
+
+interface DailyTrendPointRaw {
+  date: string;
+  revenue: string;
+  orders: number;
+  units: string;
+}
+
+interface CategoryMixRowRaw {
+  category: string;
+  revenue: string;
+  units: string;
+  share: string;
+}
+
+interface PaymentMixRowRaw {
+  payment_method: string;
+  revenue: string;
+  order_count: number;
+  share: string;
+}
+
+interface TopProductRowRaw {
+  product_id: string;
+  name: string;
+  category: string;
+  units_sold: string;
+  revenue: string;
+}
+
+interface StorePerformanceRowRaw {
+  location_id: string;
+  revenue: string;
+  order_count: number;
+  average_order_value: string;
+  share: string;
+}
+
+interface RepresentativeTransactionRaw {
+  id: string;
+  order_number: string | null;
+  token_date: string | null;
+  completed_at: string | null;
+  location_id: string;
+  order_type: string;
+  payment_method: string;
+  discount_amount: string;
+  item_count: number;
+  total: string;
+}
+
+interface ReportsDashboardSummaryRaw {
+  range: { date_from: string; date_to: string };
+  kpi: ReportsKpiRaw;
+  daily_trend: DailyTrendPointRaw[];
+  category_mix: CategoryMixRowRaw[];
+  payment_mix: PaymentMixRowRaw[];
+  top_products: TopProductRowRaw[];
+  store_performance: StorePerformanceRowRaw[];
+  representative_transactions: RepresentativeTransactionRaw[];
+}
+
+function mapKpi(raw: ReportsKpiRaw): ReportsDashboardKpi {
+  return {
+    grossSales: raw.gross_sales,
+    discountTotal: raw.discount_total,
+    netSales: raw.net_sales,
+    transactionCount: raw.transaction_count,
+    averageOrderValue: raw.average_order_value,
+    unitsSold: raw.units_sold,
+    cancelledCount: raw.cancelled_count,
+    cancelledValue: raw.cancelled_value,
+  };
+}
+
+function mapDailyTrendPoint(raw: DailyTrendPointRaw): DailyTrendPoint {
+  return { date: raw.date, revenue: raw.revenue, orders: raw.orders, units: raw.units };
+}
+
+function mapCategoryMixRow(raw: CategoryMixRowRaw): CategoryMixRow {
+  return { category: raw.category, revenue: raw.revenue, units: raw.units, share: raw.share };
+}
+
+function mapPaymentMixRow(raw: PaymentMixRowRaw): PaymentMixRow {
+  return {
+    paymentMethod: raw.payment_method as PaymentMixRow['paymentMethod'],
+    revenue: raw.revenue,
+    orderCount: raw.order_count,
+    share: raw.share,
+  };
+}
+
+function mapTopProductRow(raw: TopProductRowRaw): TopProductRow {
+  return {
+    productId: raw.product_id,
+    name: raw.name,
+    category: raw.category,
+    unitsSold: raw.units_sold,
+    revenue: raw.revenue,
+  };
+}
+
+function mapStorePerformanceRow(raw: StorePerformanceRowRaw): StorePerformanceRow {
+  return {
+    locationId: raw.location_id,
+    revenue: raw.revenue,
+    orderCount: raw.order_count,
+    averageOrderValue: raw.average_order_value,
+    share: raw.share,
+  };
+}
+
+function mapRepresentativeTransaction(raw: RepresentativeTransactionRaw): RepresentativeTransaction {
+  return {
+    id: raw.id,
+    orderNumber: raw.order_number,
+    tokenDate: raw.token_date,
+    completedAt: raw.completed_at,
+    locationId: raw.location_id,
+    orderType: raw.order_type as RepresentativeTransaction['orderType'],
+    paymentMethod: (raw.payment_method as RepresentativeTransaction['paymentMethod']) || '',
+    discountAmount: raw.discount_amount,
+    itemCount: raw.item_count,
+    total: raw.total,
+  };
+}
+
+function mapDashboardSummary(raw: ReportsDashboardSummaryRaw): ReportsDashboardSummary {
+  return {
+    range: { dateFrom: raw.range.date_from, dateTo: raw.range.date_to },
+    kpi: mapKpi(raw.kpi),
+    dailyTrend: raw.daily_trend.map(mapDailyTrendPoint),
+    categoryMix: raw.category_mix.map(mapCategoryMixRow),
+    paymentMix: raw.payment_mix.map(mapPaymentMixRow),
+    topProducts: raw.top_products.map(mapTopProductRow),
+    storePerformance: raw.store_performance.map(mapStorePerformanceRow),
+    representativeTransactions: raw.representative_transactions.map(mapRepresentativeTransaction),
   };
 }
 
@@ -114,5 +279,20 @@ export const reportsService = {
       }),
     );
     return raw.map(mapInvoice);
+  },
+
+  /** The Sales-summary dashboard's data source — pre-aggregated server-side (see `apps/reports/`) so the live page and any future export always agree on the same numbers. `from`/`to` are required. */
+  async getDashboardSummary(filters: ReportsDashboardFilters): Promise<ReportsDashboardSummary> {
+    const raw = await unwrap<ReportsDashboardSummaryRaw>(
+      apiClient.get('/tenant/reports/summary/', {
+        params: {
+          from: filters.from,
+          to: filters.to,
+          business_id: filters.businessId,
+          location_id: filters.locationId,
+        },
+      }),
+    );
+    return mapDashboardSummary(raw);
   },
 };

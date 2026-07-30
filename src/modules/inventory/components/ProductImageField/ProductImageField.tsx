@@ -6,14 +6,15 @@ import { useToast } from '@/components';
 import { cn } from '@/utils/cn';
 import { describeApiError } from '@/utils/errors';
 
-import { INVENTORY_QUERY_KEYS } from '../../constants/inventory.constants';
+import {
+  ACCEPTED_PRODUCT_IMAGE_TYPES,
+  INVENTORY_QUERY_KEYS,
+  MAX_PRODUCT_IMAGE_BYTES,
+} from '../../constants/inventory.constants';
 import { inventoryService } from '../../services/inventoryService';
 import type { Product } from '../../types/inventory.types';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 export interface ProductImageFieldProps {
   product: Product;
@@ -61,11 +62,11 @@ export function ProductImageField({ product }: ProductImageFieldProps) {
     event.target.value = '';
     if (!file) return;
     setClientError(null);
-    if (file.size > MAX_IMAGE_BYTES) {
+    if (file.size > MAX_PRODUCT_IMAGE_BYTES) {
       setClientError('That file is over 5MB — pick a smaller image.');
       return;
     }
-    if (!ACCEPTED_TYPES.includes(file.type)) {
+    if (!ACCEPTED_PRODUCT_IMAGE_TYPES.includes(file.type)) {
       setClientError('Only JPEG, PNG, or WebP images are accepted.');
       return;
     }
