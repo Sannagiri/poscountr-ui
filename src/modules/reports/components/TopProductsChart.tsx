@@ -1,5 +1,6 @@
 import { Award } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import type { YAxisTickContentProps } from 'recharts';
 
 import { Card, CardHeader, EmptyState, ErrorMessage, Loader } from '@/components';
 import { describeApiError } from '@/utils/errors';
@@ -23,10 +24,10 @@ function truncateName(name: string): string {
  * which is the reliable path; passing an element for it to clone did not
  * pick up the injected `x`/`y`/`payload`.
  */
-function renderProductNameTick({ x, y, payload }: { x: number; y: number; payload: { value: string } }) {
+function renderProductNameTick({ x, y, payload }: YAxisTickContentProps) {
   return (
-    <text x={x} y={y} dy={4} textAnchor="end" fontSize={12} fill={colors.ink.DEFAULT}>
-      {truncateName(payload.value)}
+    <text x={Number(x)} y={Number(y)} dy={4} textAnchor="end" fontSize={12} fill={colors.ink.DEFAULT}>
+      {truncateName(String(payload.value))}
     </text>
   );
 }
