@@ -2,7 +2,7 @@ import { apiClient, unwrap, unwrapWithMeta } from '@/services/apiClient';
 
 import type { InvoiceRaw } from '@/modules/reports/services/reportsService';
 // Imported from the concrete file, not the `@/modules/reports` barrel — that
-// barrel re-exports `ReportsPage`, which imports `@/modules/billing`'s own
+// barrel re-exports the Reports pages, which import `@/modules/billing`'s own
 // barrel, and going through both here would create a billing <-> reports
 // circular import at module-init time.
 import { mapInvoice } from '@/modules/reports/services/reportsService';
@@ -11,6 +11,7 @@ import type { Invoice } from '@/modules/reports/types/reports.types';
 import type {
   KdsItem,
   KdsOrder,
+  OfflineOrderSyncRequest,
   Order,
   OrderCreateRequest,
   OrderItem,
@@ -40,6 +41,8 @@ interface OrderItemRaw {
   quantity: string;
   discount_percent: string;
   line_total: string;
+  unit: string;
+  hsn_code: string;
 }
 
 function mapOrderItem(raw: OrderItemRaw): OrderItem {
@@ -52,6 +55,8 @@ function mapOrderItem(raw: OrderItemRaw): OrderItem {
     quantity: raw.quantity,
     discountPercent: raw.discount_percent,
     lineTotal: raw.line_total,
+    unit: raw.unit,
+    hsnCode: raw.hsn_code,
   };
 }
 
@@ -65,6 +70,7 @@ interface OrderRaw {
   payment_method: string;
   discount_percent: string;
   discount_amount: string;
+  apply_gst: boolean;
   order_number: string | null;
   kitchen_enabled: boolean;
   table_id: string | null;
@@ -103,6 +109,7 @@ function mapOrder(raw: OrderRaw): Order {
     paymentMethod: (raw.payment_method as PaymentMethod | '') || '',
     discountPercent: raw.discount_percent,
     discountAmount: raw.discount_amount,
+    applyGst: raw.apply_gst,
     orderNumber: raw.order_number,
     kitchenEnabled: raw.kitchen_enabled,
     tableId: raw.table_id,
@@ -151,6 +158,31 @@ function orderCreateRequestToBody(request: OrderCreateRequest) {
     customer_gstin: request.customerGstin,
     customer_state: request.customerState,
     discount_percent: request.discountPercent,
+    apply_gst: request.applyGst,
+  };
+}
+
+function offlineOrderSyncRequestToBody(request: OfflineOrderSyncRequest) {
+  return {
+    business_id: request.businessId,
+    location_id: request.locationId,
+    order_type: request.orderType,
+    table_number: request.tableNumber,
+    note: request.note,
+    idempotency_key: request.idempotencyKey,
+    items: request.items.map((line) => ({
+      product_id: line.productId,
+      quantity: line.quantity,
+      discount_percent: line.discountPercent,
+    })),
+    customer_name: request.customerName,
+    customer_phone: request.customerPhone,
+    customer_email: request.customerEmail,
+    customer_gstin: request.customerGstin,
+    customer_state: request.customerState,
+    discount_percent: request.discountPercent,
+    apply_gst: request.applyGst,
+    payment_method: request.paymentMethod,
   };
 }
 
@@ -237,6 +269,24 @@ export const billingService = {
     return mapOrder(raw);
   },
 
+  /**
+   * Sync one register-offline cash sale (create + items + complete in one
+   * atomic, idempotent call) — see `apps/billing/services/order_service.py`'s
+   * `create_offline_sale`. Replaying the same `idempotencyKey` (e.g. a retry
+   * after a flaky response) returns the already-synced order, never a
+   * duplicate. Called only by `src/offline/syncEngine.ts`.
+   */
+  async syncOfflineOrder(request: OfflineOrderSyncRequest): Promise<TransitionResult> {
+    const { data, meta } = await unwrapWithMeta<OrderRaw>(
+      apiClient.post('/tenant/orders/offline-sync/', offlineOrderSyncRequestToBody(request)),
+    );
+    return {
+      order: mapOrder(data),
+      warning: (meta?.warning as string) ?? null,
+      invoice: meta?.invoice ? mapInvoice(meta.invoice as InvoiceRaw) : null,
+    };
+  },
+
   /** Sets `request.productId`'s line to `request.quantity` (adds the line if it doesn't exist yet), optionally with its own discount — only accepted while the order is still `pending`. */
   async addItem(orderId: string, request: OrderItemRequest): Promise<Order> {
     const raw = await unwrap<OrderRaw>(
@@ -252,6 +302,14 @@ export const billingService = {
   async removeItem(orderId: string, productId: string): Promise<Order> {
     const raw = await unwrap<OrderRaw>(
       apiClient.delete(`/tenant/orders/${orderId}/items/`, { data: { product_id: productId } }),
+    );
+    return mapOrder(raw);
+  },
+
+  /** Flips whether GST applies to this order — same "only while still editable" window as `addItem`/`removeItem` (rejected once preparation has started/the order is completed). */
+  async setApplyGst(orderId: string, applyGst: boolean): Promise<Order> {
+    const raw = await unwrap<OrderRaw>(
+      apiClient.post(`/tenant/orders/${orderId}/apply-gst/`, { apply_gst: applyGst }),
     );
     return mapOrder(raw);
   },
@@ -276,7 +334,9 @@ export const billingService = {
   async uploadWayBill(orderId: string, file: File): Promise<Order> {
     const formData = new FormData();
     formData.append('way_bill', file);
-    const raw = await unwrap<OrderRaw>(apiClient.post(`/tenant/orders/${orderId}/way-bill/`, formData));
+    const raw = await unwrap<OrderRaw>(
+      apiClient.post(`/tenant/orders/${orderId}/way-bill/`, formData),
+    );
     return mapOrder(raw);
   },
 

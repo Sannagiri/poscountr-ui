@@ -1,6 +1,6 @@
 import { Award } from 'lucide-react';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { YAxisTickContentProps } from 'recharts';
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { Card, CardHeader, EmptyState, ErrorMessage, Loader } from '@/components';
 import { describeApiError } from '@/utils/errors';
@@ -26,7 +26,14 @@ function truncateName(name: string): string {
  */
 function renderProductNameTick({ x, y, payload }: YAxisTickContentProps) {
   return (
-    <text x={Number(x)} y={Number(y)} dy={4} textAnchor="end" fontSize={12} fill={colors.ink.DEFAULT}>
+    <text
+      x={Number(x)}
+      y={Number(y)}
+      dy={4}
+      textAnchor="end"
+      fontSize={12}
+      fill={colors.ink.DEFAULT}
+    >
       {truncateName(String(payload.value))}
     </text>
   );
@@ -113,7 +120,13 @@ export function TopProductsChart({ data, isLoading, isError, error }: TopProduct
                 tickLine={false}
               />
               <Tooltip content={<ProductTooltip />} cursor={{ fill: colors.surface.DEFAULT }} />
-              <Bar dataKey="revenue" name="Revenue" fill={colors.brand.DEFAULT} radius={[0, 4, 4, 0]} maxBarSize={22} />
+              <Bar
+                dataKey="revenue"
+                name="Revenue"
+                fill={colors.brand.DEFAULT}
+                radius={[0, 4, 4, 0]}
+                maxBarSize={22}
+              />
             </BarChart>
           </ResponsiveContainer>
         </div>

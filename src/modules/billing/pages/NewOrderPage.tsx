@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { ListOrdered, MapPin, Minus, Plus, Trash2 } from 'lucide-react';
 
 import {
+  Badge,
   Button,
   Card,
   EmptyState,
@@ -12,31 +13,55 @@ import {
   PageHeader,
   SearchInput,
   Select,
+  Switch,
   useToast,
 } from '@/components';
+import { useBarcodeScanner } from '@/hooks/useBarcodeScanner';
 import { useFillRemainingHeight } from '@/hooks/useFillRemainingHeight';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { cn } from '@/utils/cn';
 import { describeApiError } from '@/utils/errors';
+import { preventNumberInputScroll } from '@/utils/numberInputScroll';
 import { getSessionMemory, setSessionMemory } from '@/utils/sessionMemory';
 import { breakpoints } from '@/styles/breakpoints';
 
 import { useAuthStore } from '@/modules/auth';
 import { useBusinesses, useLocations } from '@/modules/businesses';
 import type { Product } from '@/modules/inventory';
-import { useProducts } from '@/modules/inventory';
+import {
+  getAvailableStock,
+  getStockLabel,
+  getStockTone,
+  inventoryService,
+  useProducts,
+} from '@/modules/inventory';
 import { useOrderSettings } from '@/modules/settings';
 import type { Table } from '@/modules/tables';
 import { TableSelectScreen } from '@/modules/tables';
 
-import { BILLING_ROUTES, ORDER_TYPE_OPTIONS, PAYMENT_METHOD_OPTIONS } from '../constants/billing.constants';
+import {
+  BILLING_ROUTES,
+  ORDER_TYPE_OPTIONS,
+  PAYMENT_METHOD_OPTIONS,
+} from '../constants/billing.constants';
 import { useAutoSelectSingle } from '../hooks/useAutoSelectSingle';
 import { billingService } from '../services/billingService';
-import type { Order, OrderStatus, PaymentMethod } from '../types/billing.types';
+import type {
+  OfflineOrderSyncRequest,
+  Order,
+  OrderStatus,
+  PaymentMethod,
+} from '../types/billing.types';
 import type { OrderCreateFormValues } from '../validations/billing.validation';
 import { buildOrderCreateSchema } from '../validations/billing.validation';
 
+import { notifyQueueChanged, offlineDb } from '@/offline/db';
+import { runSync } from '@/offline/syncEngine';
+import { usePendingOrderCount } from '@/offline/usePendingOrderCount';
+import { ApiError } from '@/types/api';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 interface CartLine {
   product: Product;
@@ -115,7 +140,9 @@ async function advanceOrder(
 
 /** This line's own price after its own discount — `effectiveSellingPrice` (the location-resolved price, falling back to the master price when there's no override) is tax-inclusive, so this is just `qty × price × (1 - discount%)`, not a tax breakdown. */
 function lineEstimate(line: CartLine): number {
-  return line.quantity * Number(line.product.effectiveSellingPrice) * (1 - line.discountPercent / 100);
+  return (
+    line.quantity * Number(line.product.effectiveSellingPrice) * (1 - line.discountPercent / 100)
+  );
 }
 
 /**
@@ -155,6 +182,10 @@ export function NewOrderPage() {
   const currentUser = useAuthStore((state) => state.user);
   const isTenantAdmin = currentUser?.role === 'tenant_admin';
 
+  const queryClient = useQueryClient();
+  const isOnline = useOnlineStatus();
+  const pendingSyncCount = usePendingOrderCount();
+
   const businessesQuery = useBusinesses({ enabled: isTenantAdmin });
   const locationsQuery = useLocations({ enabled: isTenantAdmin });
 
@@ -164,6 +195,12 @@ export function NewOrderPage() {
   // not at completion — and applied on top of each line's own discount, if
   // any. Defaults to 0 so most orders never touch it.
   const [orderDiscountPercent, setOrderDiscountPercent] = useState('0');
+  // Free-hand per-order choice, same "set at creation" moment as the
+  // discount above — defaults on (today's always-on behavior) so most
+  // orders never need to touch this either. Locked once the order can no
+  // longer be edited (see `billingService.setApplyGst`'s own doc comment);
+  // this page only ever sends the initial value at creation.
+  const [applyGst, setApplyGst] = useState(true);
 
   const productGridRef = useRef<HTMLDivElement>(null);
   const productGridHeight = useFillRemainingHeight(productGridRef, { minHeight: 320 });
@@ -277,7 +314,10 @@ export function NewOrderPage() {
   // id also gets a chance to auto-fill the newly-selected business's own
   // single location, if it has just one.
   useEffect(() => {
-    if (selectedLocationId && !filteredLocations.some((location) => location.id === selectedLocationId)) {
+    if (
+      selectedLocationId &&
+      !filteredLocations.some((location) => location.id === selectedLocationId)
+    ) {
       setValue('locationId', '');
     }
   }, [filteredLocations, selectedLocationId, setValue]);
@@ -308,8 +348,12 @@ export function NewOrderPage() {
   const orderSettingsQuery = useOrderSettings(
     isTenantAdmin ? selectedBusinessId || undefined : undefined,
   );
-  const nameRequired = isTenantAdmin ? (orderSettingsQuery.data?.customerNameRequired ?? true) : true;
-  const phoneRequired = isTenantAdmin ? (orderSettingsQuery.data?.customerPhoneRequired ?? true) : true;
+  const nameRequired = isTenantAdmin
+    ? (orderSettingsQuery.data?.customerNameRequired ?? true)
+    : true;
+  const phoneRequired = isTenantAdmin
+    ? (orderSettingsQuery.data?.customerPhoneRequired ?? true)
+    : true;
   // Same tenant_admin-only gating as name/phone-required above, for the
   // same reason — a manager's business isn't resolvable on this page yet.
   // A manager therefore always sees the classic flow, same limitation the
@@ -335,8 +379,34 @@ export function NewOrderPage() {
     if (selectedTable) setValue('orderType', 'dine_in');
   }, [selectedTable, setValue]);
 
+  // Offline read fallback: the only one this feature needs. Cached
+  // opportunistically whenever the products fetch actually succeeds; read
+  // back only once there's nothing else to show (a reload mid-outage would
+  // otherwise leave the product grid blank — TanStack Query's in-memory
+  // cache doesn't survive a reload).
+  const productCacheKey = isTenantAdmin ? selectedLocationId || '__all__' : '__all__';
+  const [cachedProducts, setCachedProducts] = useState<Product[]>([]);
+
+  useEffect(() => {
+    if (productsQuery.data) {
+      void offlineDb.productCache.put({
+        key: productCacheKey,
+        products: productsQuery.data,
+        cachedAt: Date.now(),
+      });
+    }
+  }, [productsQuery.data, productCacheKey]);
+
+  useEffect(() => {
+    if (productsQuery.data || isOnline) return;
+    offlineDb.productCache
+      .get(productCacheKey)
+      .then((entry) => setCachedProducts(entry?.products ?? []))
+      .catch(() => setCachedProducts([]));
+  }, [productCacheKey, isOnline, productsQuery.data]);
+
   const availableProducts = useMemo(() => {
-    let products = productsQuery.data ?? [];
+    let products = productsQuery.data ?? cachedProducts;
     if (isTenantAdmin) {
       if (!selectedBusinessId) return [];
       // Already the right, location-resolved set server-side whenever
@@ -351,16 +421,39 @@ export function NewOrderPage() {
     if (term) {
       products = products.filter(
         (product) =>
-          product.name.toLowerCase().includes(term) || product.sku.toLowerCase().includes(term),
+          product.name.toLowerCase().includes(term) ||
+          product.sku.toLowerCase().includes(term) ||
+          (product.barcode ?? '').toLowerCase().includes(term),
       );
     }
     return products;
-  }, [productsQuery.data, isTenantAdmin, selectedBusinessId, productSearch]);
+  }, [productsQuery.data, cachedProducts, isTenantAdmin, selectedBusinessId, productSearch]);
 
   const cartLines = Object.values(cart);
   const estimatedTotal = estimateTotal(cartLines, Number(orderDiscountPercent || 0));
 
+  // Manager path never resolves a location client-side (see the
+  // `productsQuery` comment above) — `getAvailableStock` returns `null` in
+  // that case (treat as unlimited here; the backend's own `_upsert_item`
+  // check is still the real gate at submit time).
+  const cartLocationId = isTenantAdmin ? selectedLocationId || undefined : undefined;
+
   function addToCart(product: Product) {
+    const available = getAvailableStock(product, cartLocationId);
+    if (available !== null) {
+      if (available <= 0) {
+        showToast({
+          tone: 'danger',
+          message: `'${product.name}' is out of stock at this location.`,
+        });
+        return;
+      }
+      const currentQty = cart[product.id]?.quantity ?? 0;
+      if (currentQty + 1 > available) {
+        showToast({ tone: 'warning', message: `Only ${available} of '${product.name}' in stock.` });
+        return;
+      }
+    }
     setCart((prev) => {
       const existing = prev[product.id];
       return {
@@ -373,10 +466,17 @@ export function NewOrderPage() {
           // falling back to the master product's own when there's no
           // override), still freely editable per line afterward via
           // `setItemDiscountPercent`.
-          discountPercent: existing?.discountPercent ?? Number(product.effectiveDiscountPercent || 0),
+          discountPercent:
+            existing?.discountPercent ?? Number(product.effectiveDiscountPercent || 0),
         },
       };
     });
+  }
+
+  /** Whether the `+` stepper on an already-in-cart line may go higher — `null` (unlimited/unresolved stock) always can. */
+  function canIncreaseQuantity(line: CartLine): boolean {
+    const available = getAvailableStock(line.product, cartLocationId);
+    return available === null || line.quantity < available;
   }
 
   function setQuantity(productId: string, quantity: number) {
@@ -413,6 +513,30 @@ export function NewOrderPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [amountTendered, setAmountTendered] = useState('');
 
+  // Scan-to-cart: resolves a scanned/typed code against the same product
+  // lookup the general "scan for details" flow uses, then feeds the result
+  // straight through `addToCart` — same code path a manual tile click
+  // already goes through, so cart logic itself is untouched. Disarmed once
+  // the completion modal is open (that's a different screen's worth of
+  // fields, no cart to add into) and while the business/location picker
+  // hasn't resolved yet for a tenant_admin (no catalog scoped to scan
+  // against yet).
+  useBarcodeScanner({
+    enabled: !pendingOrder && (!isTenantAdmin || Boolean(selectedBusinessId)),
+    onScan: async (code) => {
+      try {
+        const product = await inventoryService.lookupProductByCode(
+          code,
+          isTenantAdmin ? selectedBusinessId : undefined,
+        );
+        addToCart(product);
+        showToast({ tone: 'success', message: `${product.name} added.` });
+      } catch (error) {
+        showToast({ tone: 'danger', message: describeApiError(error) });
+      }
+    },
+  });
+
   // Whether the just-created order's business runs the food flow
   // (pending → kot_fired → … ) vs. the non-food flow (pending → completed
   // directly) — read straight off the order (`OrderOutputSerializer`'s
@@ -445,6 +569,64 @@ export function NewOrderPage() {
     });
   }
 
+  const cartItemLines = cartLines.map((line) => ({
+    productId: line.product.id,
+    quantity: String(line.quantity),
+    discountPercent: String(line.discountPercent || 0),
+  }));
+
+  /**
+   * Queues the whole cart as one offline cash sale — no PENDING window, no
+   * kitchen routing (that's the online-only, connectivity-dependent flow;
+   * see `apps/billing/services/order_service.py`'s `create_offline_sale`).
+   * The write to `offlineDb` happens *before* this resolves, so the caller
+   * can treat a resolved promise as "durably queued," matching the
+   * write-ahead-then-reflect-success order the feature was designed around.
+   */
+  async function queueOfflineSale(values: OrderCreateFormValues): Promise<void> {
+    const payload: OfflineOrderSyncRequest = {
+      businessId: values.businessId || undefined,
+      locationId: values.locationId || undefined,
+      orderType: values.orderType,
+      tableNumber: values.tableNumber || undefined,
+      customerName: values.customerName,
+      customerPhone: values.customerPhone,
+      discountPercent: orderDiscountPercent || '0',
+      applyGst,
+      items: cartItemLines,
+      paymentMethod: 'cash',
+      idempotencyKey: crypto.randomUUID(),
+    };
+    await offlineDb.pendingOrders.add({
+      localId: payload.idempotencyKey,
+      payload,
+      status: 'queued',
+      createdAt: Date.now(),
+    });
+    notifyQueueChanged();
+  }
+
+  const offlineSaleMutation = useMutation({
+    mutationFn: queueOfflineSale,
+    // TanStack Query's default `networkMode: 'online'` pauses a mutation
+    // (`onMutate` runs, but the mutationFn itself never fires) whenever
+    // `navigator.onLine` is false — a real bug hit while verifying this
+    // feature: this mutation IS the "we're offline" handler, its body is a
+    // pure local IndexedDB write with no network call at all, so it must
+    // run regardless of the browser's online/offline signal.
+    networkMode: 'always',
+    onSuccess: () => {
+      showToast({
+        tone: 'success',
+        message: 'Offline sale queued — will sync automatically once back online.',
+      });
+      closeModalAndReset();
+    },
+    onError: (error) => {
+      showToast({ tone: 'danger', message: describeApiError(error) });
+    },
+  });
+
   const createMutation = useMutation({
     mutationFn: (values: OrderCreateFormValues) =>
       billingService.createOrder({
@@ -456,16 +638,24 @@ export function NewOrderPage() {
         customerName: values.customerName,
         customerPhone: values.customerPhone,
         discountPercent: orderDiscountPercent || '0',
-        items: cartLines.map((line) => ({
-          productId: line.product.id,
-          quantity: String(line.quantity),
-          discountPercent: String(line.discountPercent || 0),
-        })),
+        applyGst,
+        items: cartItemLines,
       }),
     onSuccess: (order) => {
       setPendingOrder(order);
     },
-    onError: (error) => {
+    onError: (error, values) => {
+      // A real network failure (not a validation/permission error) with the
+      // cart otherwise ready to submit — fall back to the same offline path
+      // `isOnline === false` would have taken, rather than just losing the
+      // sale to a toast. Non-cash payment methods aren't reachable here:
+      // this mutation only ever fires from the form submit, before payment
+      // method is even chosen (see the decision modal below) — the offline
+      // fallback always completes as cash, same as the proactive branch.
+      if (error instanceof ApiError && error.code === 'network_error') {
+        offlineSaleMutation.mutate(values);
+        return;
+      }
       showToast({ tone: 'danger', message: describeApiError(error) });
     },
   });
@@ -526,19 +716,33 @@ export function NewOrderPage() {
         title="New order"
         subtitle="Pick items and enter the customer's details"
         actions={
-          <Button
-            variant="secondary"
-            leadingIcon={<ListOrdered size={16} />}
-            onClick={() => navigate(BILLING_ROUTES.orders)}
-          >
-            Orders overview
-          </Button>
+          <div className="flex items-center gap-2">
+            {!isOnline && <Badge tone="warning">Offline — cash sales only</Badge>}
+            {pendingSyncCount > 0 && (
+              <button
+                type="button"
+                onClick={() => void runSync(queryClient)}
+                title="Sales queued while offline — click to sync now"
+              >
+                <Badge tone="accent">{pendingSyncCount} pending sync</Badge>
+              </button>
+            )}
+            <Button
+              variant="secondary"
+              leadingIcon={<ListOrdered size={16} />}
+              onClick={() => navigate(BILLING_ROUTES.orders)}
+            >
+              Orders overview
+            </Button>
+          </div>
         }
       />
 
       <form
         id="new-order-form"
-        onSubmit={handleSubmit((values) => createMutation.mutate(values))}
+        onSubmit={handleSubmit((values) =>
+          isOnline ? createMutation.mutate(values) : offlineSaleMutation.mutate(values),
+        )}
         className="flex flex-col gap-4"
       >
         {isTenantAdmin && (businessOptions.length > 1 || locationOptions.length > 1) ? (
@@ -602,245 +806,292 @@ export function NewOrderPage() {
             </Card>
           )
         ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="flex min-w-0 flex-col gap-4">
-          <Card className="flex min-h-0 flex-1 flex-col">
-            {/* Plain block wrapper, not a flex item — `SearchInput`'s own
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="flex min-w-0 flex-col gap-4">
+              <Card className="flex min-h-0 flex-1 flex-col">
+                {/* Plain block wrapper, not a flex item — `SearchInput`'s own
                 root div ships `flex-1` for its usual row layouts, and inside
                 a column flex container (this Card) that stretches it
                 vertically to fill the whole card instead of staying a
                 normal-height search bar. */}
-            <div className="mb-3 shrink-0">
-              <SearchInput
-                value={productSearch}
-                onChange={(event) => setProductSearch(event.target.value)}
-                placeholder="Search products by name or SKU…"
-              />
-            </div>
-            {isTenantAdmin && !selectedBusinessId ? (
-              <EmptyState
-                title="Select a business"
-                description="Pick a business above to see its products."
-              />
-            ) : waitingForLocation ? (
-              <EmptyState
-                title="Select a location"
-                description="This business has more than one location — pick one above to see what it carries."
-              />
-            ) : availableProducts.length === 0 ? (
-              <EmptyState
-                title="No products found"
-                description={
-                  productSearch
-                    ? 'Try a different search term.'
-                    : 'This business has no products yet.'
-                }
-              />
-            ) : (
-              <div
-                ref={productGridRef}
-                style={isDesktopLayout ? { height: productGridHeight } : undefined}
-                className="grid max-h-[45vh] grid-cols-1 content-start gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:max-h-none"
-              >
-                {availableProducts.map((product) => (
-                  <button
-                    key={product.id}
-                    type="button"
-                    onClick={() => addToCart(product)}
-                    className="flex flex-col items-start gap-0.5 rounded-control border border-border p-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5"
+                <div className="mb-3 shrink-0">
+                  <SearchInput
+                    value={productSearch}
+                    onChange={(event) => setProductSearch(event.target.value)}
+                    placeholder="Search products by name or SKU…"
+                  />
+                </div>
+                {isTenantAdmin && !selectedBusinessId ? (
+                  <EmptyState
+                    title="Select a business"
+                    description="Pick a business above to see its products."
+                  />
+                ) : waitingForLocation ? (
+                  <EmptyState
+                    title="Select a location"
+                    description="This business has more than one location — pick one above to see what it carries."
+                  />
+                ) : availableProducts.length === 0 ? (
+                  <EmptyState
+                    title="No products found"
+                    description={
+                      productSearch
+                        ? 'Try a different search term.'
+                        : 'This business has no products yet.'
+                    }
+                  />
+                ) : (
+                  <div
+                    ref={productGridRef}
+                    style={isDesktopLayout ? { height: productGridHeight } : undefined}
+                    className="grid max-h-[45vh] grid-cols-1 content-start gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:max-h-none"
                   >
-                    <span className="flex w-full items-center justify-between gap-2">
-                      <span className="truncate text-sm font-semibold text-ink">
-                        {product.name}
-                      </span>
-                      <span className="shrink-0 text-sm font-semibold text-brand">
-                        ₹{product.effectiveSellingPrice}
-                      </span>
-                    </span>
-                    <span className="text-xs text-ink-faint">{product.sku}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </Card>
-        </div>
-
-        <div className="flex min-w-0 flex-col gap-4">
-          <Card className="flex min-h-[220px] flex-col">
-            <p className="mb-3 shrink-0 text-xs font-bold uppercase tracking-wide text-ink-faint">
-              Cart
-            </p>
-            {cartLines.length === 0 ? (
-              <p className="flex flex-1 items-center justify-center text-center text-xs text-ink-faint">
-                No items yet — add products from the list on the left.
-              </p>
-            ) : (
-              <>
-                <div className="max-h-[360px] flex-1 overflow-y-auto pr-1">
-                  <div className="flex flex-col gap-3">
-                    {cartLines.map((line) => (
-                      <div
-                        key={line.product.id}
-                        className="flex flex-col gap-1.5 rounded-control border border-border/60 p-2"
-                      >
-                        <div className="flex items-start gap-2">
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium text-ink">
-                              {line.product.name}
-                            </p>
-                            <p className="text-xs text-ink-faint">
-                              ₹{line.product.effectiveSellingPrice} × {line.quantity}
-                              {line.discountPercent > 0 ? ` − ${line.discountPercent}%` : ''} = ₹
-                              {lineEstimate(line).toFixed(2)}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              aria-label="Decrease quantity"
-                              onClick={() => setQuantity(line.product.id, line.quantity - 1)}
-                              className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-ink-soft hover:bg-surface"
-                            >
-                              <Minus size={12} />
-                            </button>
-                            <span className="w-5 text-center text-xs font-semibold">
-                              {line.quantity}
+                    {availableProducts.map((product) => {
+                      const stockLabel = getStockLabel(product, cartLocationId);
+                      const outOfStock = getAvailableStock(product, cartLocationId) === 0;
+                      return (
+                        <button
+                          key={product.id}
+                          type="button"
+                          onClick={() => addToCart(product)}
+                          disabled={outOfStock}
+                          className="flex flex-col items-start gap-0.5 rounded-control border border-border p-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent"
+                        >
+                          <span className="flex w-full items-center justify-between gap-2">
+                            <span className="truncate text-sm font-semibold text-ink">
+                              {product.name}
                             </span>
-                            <button
-                              type="button"
-                              aria-label="Increase quantity"
-                              onClick={() => setQuantity(line.product.id, line.quantity + 1)}
-                              className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-ink-soft hover:bg-surface"
+                            <span className="shrink-0 text-sm font-semibold text-brand">
+                              ₹{product.effectiveSellingPrice}
+                            </span>
+                          </span>
+                          <span className="flex w-full items-center justify-between gap-2">
+                            <span className="text-xs text-ink-faint">{product.sku}</span>
+                            {stockLabel ? (
+                              <span
+                                className={cn(
+                                  'shrink-0 text-[11px] font-medium',
+                                  getStockTone(product, cartLocationId) === 'danger' &&
+                                    'text-danger',
+                                  getStockTone(product, cartLocationId) === 'warning' &&
+                                    'text-warning-text',
+                                  getStockTone(product, cartLocationId) === 'faint' &&
+                                    'text-ink-faint',
+                                )}
+                              >
+                                {stockLabel}
+                              </span>
+                            ) : null}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </Card>
+            </div>
+
+            <div className="flex min-w-0 flex-col gap-4">
+              <Card className="flex min-h-[220px] flex-col">
+                <p className="mb-3 shrink-0 text-xs font-bold uppercase tracking-wide text-ink-faint">
+                  Cart
+                </p>
+                {cartLines.length === 0 ? (
+                  <p className="flex flex-1 items-center justify-center text-center text-xs text-ink-faint">
+                    No items yet — add products from the list on the left.
+                  </p>
+                ) : (
+                  <>
+                    <div className="max-h-[360px] flex-1 overflow-y-auto pr-1">
+                      <div className="flex flex-col gap-3">
+                        {cartLines.map((line) => {
+                          const canIncrease = canIncreaseQuantity(line);
+                          return (
+                            <div
+                              key={line.product.id}
+                              className="flex flex-col gap-1.5 rounded-control border border-border/60 p-2"
                             >
-                              <Plus size={12} />
-                            </button>
-                            <button
-                              type="button"
-                              aria-label="Remove from cart"
-                              onClick={() => removeFromCart(line.product.id)}
-                              className="ml-1 flex h-6 w-6 items-center justify-center rounded-full text-ink-faint hover:bg-danger-bg hover:text-danger"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <label
-                            className="text-[11px] text-ink-faint"
-                            htmlFor={`item-discount-${line.product.id}`}
-                          >
-                            Item discount
-                          </label>
+                              <div className="flex items-start gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-medium text-ink">
+                                    {line.product.name}
+                                  </p>
+                                  <p className="text-xs text-ink-faint">
+                                    ₹{line.product.effectiveSellingPrice} × {line.quantity}
+                                    {line.discountPercent > 0
+                                      ? ` − ${line.discountPercent}%`
+                                      : ''}{' '}
+                                    = ₹{lineEstimate(line).toFixed(2)}
+                                  </p>
+                                  {!canIncrease ? (
+                                    <p className="text-[11px] font-medium text-warning-text">
+                                      Max in stock reached
+                                    </p>
+                                  ) : null}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    aria-label="Decrease quantity"
+                                    onClick={() => setQuantity(line.product.id, line.quantity - 1)}
+                                    className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-ink-soft hover:bg-surface"
+                                  >
+                                    <Minus size={12} />
+                                  </button>
+                                  <span className="w-5 text-center text-xs font-semibold">
+                                    {line.quantity}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    aria-label="Increase quantity"
+                                    onClick={() => setQuantity(line.product.id, line.quantity + 1)}
+                                    disabled={!canIncrease}
+                                    className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-ink-soft hover:bg-surface disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                                  >
+                                    <Plus size={12} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label="Remove from cart"
+                                    onClick={() => removeFromCart(line.product.id)}
+                                    className="ml-1 flex h-6 w-6 items-center justify-center rounded-full text-ink-faint hover:bg-danger-bg hover:text-danger"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <label
+                                  className="text-[11px] text-ink-faint"
+                                  htmlFor={`item-discount-${line.product.id}`}
+                                >
+                                  Item discount
+                                </label>
+                                <input
+                                  id={`item-discount-${line.product.id}`}
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  inputMode="decimal"
+                                  value={line.discountPercent || ''}
+                                  onChange={(event) =>
+                                    setItemDiscountPercent(
+                                      line.product.id,
+                                      Number(event.target.value),
+                                    )
+                                  }
+                                  onWheel={preventNumberInputScroll}
+                                  placeholder="0"
+                                  className="h-6 w-14 rounded-control border border-border px-1.5 text-xs text-ink focus:border-brand focus:outline-none"
+                                />
+                                <span className="text-[11px] text-ink-faint">%</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="mt-3 flex shrink-0 flex-col gap-2 border-t border-border pt-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <label
+                          htmlFor="order-discount-percent"
+                          className="text-xs font-medium text-ink-soft"
+                        >
+                          Order discount (optional)
+                        </label>
+                        <div className="flex items-center gap-1">
                           <input
-                            id={`item-discount-${line.product.id}`}
+                            id="order-discount-percent"
                             type="number"
                             min={0}
                             max={100}
                             inputMode="decimal"
-                            value={line.discountPercent || ''}
-                            onChange={(event) =>
-                              setItemDiscountPercent(line.product.id, Number(event.target.value))
-                            }
+                            value={orderDiscountPercent}
+                            onChange={(event) => setOrderDiscountPercent(event.target.value)}
+                            onWheel={preventNumberInputScroll}
                             placeholder="0"
-                            className="h-6 w-14 rounded-control border border-border px-1.5 text-xs text-ink focus:border-brand focus:outline-none"
+                            className="h-7 w-16 rounded-control border border-border px-1.5 text-sm text-ink focus:border-brand focus:outline-none"
                           />
-                          <span className="text-[11px] text-ink-faint">%</span>
+                          <span className="text-xs text-ink-faint">%</span>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="mt-3 flex shrink-0 flex-col gap-2 border-t border-border pt-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <label
-                      htmlFor="order-discount-percent"
-                      className="text-xs font-medium text-ink-soft"
-                    >
-                      Order discount (optional)
-                    </label>
-                    <div className="flex items-center gap-1">
-                      <input
-                        id="order-discount-percent"
-                        type="number"
-                        min={0}
-                        max={100}
-                        inputMode="decimal"
-                        value={orderDiscountPercent}
-                        onChange={(event) => setOrderDiscountPercent(event.target.value)}
-                        placeholder="0"
-                        className="h-7 w-16 rounded-control border border-border px-1.5 text-sm text-ink focus:border-brand focus:outline-none"
-                      />
-                      <span className="text-xs text-ink-faint">%</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-ink-soft">Apply GST</span>
+                        <Switch
+                          size="sm"
+                          checked={applyGst}
+                          onCheckedChange={setApplyGst}
+                          label="Apply GST"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-sm font-semibold text-ink">
+                        <span>Estimated total</span>
+                        <span>₹{estimatedTotal.toFixed(2)}</span>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center justify-between text-sm font-semibold text-ink">
-                    <span>Estimated total</span>
-                    <span>₹{estimatedTotal.toFixed(2)}</span>
-                  </div>
-                </div>
-              </>
-            )}
-          </Card>
+                  </>
+                )}
+              </Card>
 
-          <Card>
-            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-              Customer & order details
-            </p>
-            <div className="flex flex-col gap-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Input
-                  label={nameRequired ? 'Customer name' : 'Customer name (optional)'}
-                  placeholder="Walk-in customer"
-                  {...register('customerName')}
-                  errorMessage={errors.customerName?.message}
-                />
-                <Input
-                  label={phoneRequired ? 'Phone' : 'Phone (optional)'}
-                  placeholder="9876543210"
-                  {...register('customerPhone')}
-                  errorMessage={errors.customerPhone?.message}
-                />
-              </div>
-              {selectedTable ? (
-                <div className="flex items-center justify-between gap-3 rounded-control border border-border bg-surface/60 p-3">
-                  <span className="flex items-center gap-2 text-sm font-medium text-ink">
-                    <MapPin size={15} className="text-brand" />
-                    Dine-in · Table {selectedTable.name}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setSelectedTable(null)}
-                  >
-                    Change table
-                  </Button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Controller
-                    name="orderType"
-                    control={control}
-                    render={({ field }) => (
-                      <Select
-                        label="Order type"
-                        options={ORDER_TYPE_OPTIONS}
-                        value={field.value}
-                        onChange={field.onChange}
-                        onBlur={field.onBlur}
-                        name={field.name}
+              <Card>
+                <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
+                  Customer & order details
+                </p>
+                <div className="flex flex-col gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <Input
+                      label={nameRequired ? 'Customer name' : 'Customer name (optional)'}
+                      placeholder="Walk-in customer"
+                      {...register('customerName')}
+                      errorMessage={errors.customerName?.message}
+                    />
+                    <Input
+                      label={phoneRequired ? 'Phone' : 'Phone (optional)'}
+                      placeholder="9876543210"
+                      {...register('customerPhone')}
+                      errorMessage={errors.customerPhone?.message}
+                    />
+                  </div>
+                  {selectedTable ? (
+                    <div className="flex items-center justify-between gap-3 rounded-control border border-border bg-surface/60 p-3">
+                      <span className="flex items-center gap-2 text-sm font-medium text-ink">
+                        <MapPin size={15} className="text-brand" />
+                        Dine-in · Table {selectedTable.name}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setSelectedTable(null)}
+                      >
+                        Change table
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <Controller
+                        name="orderType"
+                        control={control}
+                        render={({ field }) => (
+                          <Select
+                            label="Order type"
+                            options={ORDER_TYPE_OPTIONS}
+                            value={field.value}
+                            onChange={field.onChange}
+                            onBlur={field.onBlur}
+                            name={field.name}
+                          />
+                        )}
                       />
-                    )}
-                  />
-                  {isDineIn ? (
-                    <Input label="Table number (optional)" {...register('tableNumber')} />
-                  ) : null}
+                      {isDineIn ? (
+                        <Input label="Table number (optional)" {...register('tableNumber')} />
+                      ) : null}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </Card>
+              </Card>
 
-          {/* Fixed (not sticky) below `lg` so the submit action stays
+              {/* Fixed (not sticky) below `lg` so the submit action stays
               reachable without scrolling past the cart/customer-details
               cards above it — `position: sticky` only clamps to the
               viewport edge once the page has scrolled *past* this element's
@@ -851,18 +1102,22 @@ export function NewOrderPage() {
               overlaps real content. At `lg` this collapses back to a plain
               in-flow button (matches the side-by-side desktop layout, where
               it's already on-screen). */}
-          <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-surface px-4 py-3 sm:px-6 lg:static lg:inset-auto lg:z-auto lg:border-0 lg:bg-transparent lg:px-0 lg:py-0">
-            <Button
-              type="submit"
-              size="lg"
-              isLoading={createMutation.isPending}
-              disabled={cartLines.length === 0}
-            >
-              {cartLines.length > 0 ? `Create order · ₹${estimatedTotal.toFixed(2)}` : 'Create order'}
-            </Button>
+              <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-surface px-4 py-3 sm:px-6 lg:static lg:inset-auto lg:z-auto lg:border-0 lg:bg-transparent lg:px-0 lg:py-0">
+                <Button
+                  type="submit"
+                  size="lg"
+                  isLoading={createMutation.isPending || offlineSaleMutation.isPending}
+                  disabled={cartLines.length === 0}
+                >
+                  {cartLines.length === 0
+                    ? 'Create order'
+                    : isOnline
+                      ? `Create order · ₹${estimatedTotal.toFixed(2)}`
+                      : `Complete cash sale (offline) · ₹${estimatedTotal.toFixed(2)}`}
+                </Button>
+              </div>
+            </div>
           </div>
-        </div>
-        </div>
         )}
       </form>
 

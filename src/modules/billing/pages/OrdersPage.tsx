@@ -33,10 +33,14 @@ const ORDER_TYPE_LABELS: Record<OrderType, string> = Object.fromEntries(
  * `YYYY-MM-DD` day, which sorts identically as a string or a real date.
  * `null` means "every order," not "none" — that's the `all` preset.
  */
-type DatePreset = 'today' | 'date' | 'range' | 'all';
+type DatePreset = 'today' | 'week' | 'date' | 'range' | 'all';
 
+// Narrowest to broadest span — same chronological order every date-preset
+// list in this app follows (`reportsFilters.constants.ts`, `NotificationBell`'s
+// own preset list).
 const DATE_PRESET_OPTIONS: { value: DatePreset; label: string }[] = [
   { value: 'today', label: 'Today' },
+  { value: 'week', label: 'Last 7 days' },
   { value: 'date', label: 'Specific date' },
   { value: 'range', label: 'Date range' },
   { value: 'all', label: 'All time' },
@@ -66,16 +70,16 @@ function getOrderSearchValue(order: Order): string {
  * IST day-boundary field the backend stamps at order-creation time (see
  * `DashboardPage`'s `dateIST()` usage for the same convention) — rather
  * than `createdAt`, so "today" always means the same day the backend meant
- * when it assigned the order its daily token number. Defaults to "today,"
- * per the same convention as the dashboard, rather than showing every order
- * ever placed.
+ * when it assigned the order its daily token number. Defaults to "Last 7
+ * days" — enough of a window to actually see something on a normal shop
+ * day without loading every order ever placed.
  */
 export function OrdersPage() {
   const navigate = useNavigate();
   const ordersQuery = useOrders();
   const [previewOrder, setPreviewOrder] = useState<Order | null>(null);
 
-  const [datePreset, setDatePreset] = useState<DatePreset>('today');
+  const [datePreset, setDatePreset] = useState<DatePreset>('week');
   const [specificDate, setSpecificDate] = useState(() => dateIST());
   const [rangeFrom, setRangeFrom] = useState(() => dateIST());
   const [rangeTo, setRangeTo] = useState(() => dateIST());
@@ -85,6 +89,10 @@ export function OrdersPage() {
       const today = dateIST();
       return { from: today, to: today };
     }
+    // Rolling 7-day window (today - 6 days .. today), same "week" convention
+    // `resolveDatePresetBounds` (notifications) and `reportsFilters.constants.ts`
+    // already use — not a Monday-Sunday calendar week.
+    if (datePreset === 'week') return { from: dateIST(-6), to: dateIST() };
     if (datePreset === 'date') return { from: specificDate, to: specificDate };
     if (datePreset === 'range') return { from: rangeFrom, to: rangeTo };
     return null;

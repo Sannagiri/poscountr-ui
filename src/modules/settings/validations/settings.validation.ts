@@ -56,10 +56,12 @@ export const invoiceSettingsFormSchema = z.object({
     .min(1, 'Enter a starting number')
     .max(10, 'At most 10 digits')
     .regex(/^\d+$/, 'Digits only'),
-  headerNote: z.string().max(255, 'At most 255 characters'),
-  footerNote: z.string(),
+  // `headerNote`/`footerNote` dropped from this form — that free text is
+  // now authored directly in the layout builder (`LayoutConfig.header_notes`/
+  // `footer_notes`), not per-business settings. `InvoiceSettings.headerNote`/
+  // `footerNote` still exist on the backend model (unused by rendering now).
   showCustomerGstin: z.boolean(),
-  paperWidth: z.enum(['58mm', '80mm']),
+  paperWidth: z.enum(['58mm', '80mm', 'a4']),
 });
 
 export type InvoiceSettingsFormValues = z.infer<typeof invoiceSettingsFormSchema>;
@@ -83,6 +85,7 @@ export const orderSettingsFormSchema = z
     customerNameRequired: z.boolean(),
     customerPhoneRequired: z.boolean(),
     kitchenEnabled: z.boolean(),
+    kotReceiptEnabled: z.boolean(),
     tableLayoutEnabled: z.boolean(),
   })
   .refine((values) => values.customerNameRequired || values.customerPhoneRequired, {
@@ -109,3 +112,26 @@ export const purchaseSettingsFormSchema = z.object({
 });
 
 export type PurchaseSettingsFormValues = z.infer<typeof purchaseSettingsFormSchema>;
+
+/**
+ * Mirrors the backend's quotation-settings update guard — same numbering
+ * shape `orderSettingsFormSchema`/`purchaseSettingsFormSchema` validate,
+ * plus `expirationDays` (0 = never expires, mirrored as a plain non-negative
+ * integer field rather than a switch + number pair).
+ */
+export const quotationSettingsFormSchema = z.object({
+  resetPeriod: z.enum(['daily', 'monthly', 'yearly', 'continuous']),
+  numberingPrefix: z.string().max(12, 'At most 12 characters').optional().or(z.literal('')),
+  numberingStart: z
+    .string()
+    .min(1, 'Enter a starting number')
+    .max(10, 'At most 10 digits')
+    .regex(/^\d+$/, 'Digits only'),
+  expirationDays: z
+    .string()
+    .min(1, 'Enter a number of days')
+    .max(5, 'At most 5 digits')
+    .regex(/^\d+$/, 'Digits only'),
+});
+
+export type QuotationSettingsFormValues = z.infer<typeof quotationSettingsFormSchema>;

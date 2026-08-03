@@ -1,8 +1,16 @@
 export { CategoryMixChart } from './CategoryMixChart';
+export { CompareKpiStrip } from './CompareKpiStrip';
+export { CompareLocationChart } from './CompareLocationChart';
+export { CompareTrendChart } from './CompareTrendChart';
 export { DailyTrendChart } from './DailyTrendChart';
 export { KpiStrip } from './KpiStrip';
 export { KpiTile } from './KpiTile';
 export { PaymentMixChart } from './PaymentMixChart';
+export { PurchaseKpiStrip } from './PurchaseKpiStrip';
+export { PurchaseLocationChart } from './PurchaseLocationChart';
+export { PurchasePaymentStatusChart } from './PurchasePaymentStatusChart';
 export { RepresentativeTransactionsTable } from './RepresentativeTransactionsTable';
 export { StorePerformanceChart } from './StorePerformanceChart';
 export { TopProductsChart } from './TopProductsChart';
+export { TopProductsPurchasedChart } from './TopProductsPurchasedChart';
+export { TopSuppliersChart } from './TopSuppliersChart';

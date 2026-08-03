@@ -1,9 +1,10 @@
 import { useNavigate } from 'react-router-dom';
-import { Bell, LogOut, Menu, Settings, Store, User } from 'lucide-react';
+import { LogOut, Menu, Settings, Store, User } from 'lucide-react';
 
 import { DropdownMenu } from '@/components';
 
 import { authService, broadcastSessionCleared, useAuthStore } from '@/modules/auth';
+import { NotificationBell } from '@/modules/notifications';
 
 export interface TopbarProps {
   /** Opens the mobile nav drawer — only rendered below `lg` (see `AppShell`). */
@@ -64,13 +65,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
       </div>
 
       <div className="flex items-center gap-3">
-        <button
-          type="button"
-          aria-label="Notifications"
-          className="flex h-9 w-9 items-center justify-center rounded-full text-ink-soft hover:bg-surface hover:text-ink"
-        >
-          <Bell size={18} />
-        </button>
+        <NotificationBell />
 
         <DropdownMenu
           trigger={

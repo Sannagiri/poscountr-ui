@@ -16,16 +16,25 @@ import {
   PageHeader,
   SearchInput,
   Select,
+  Switch,
   useToast,
   WayBillUpload,
 } from '@/components';
+import { useBarcodeScanner } from '@/hooks/useBarcodeScanner';
+import { cn } from '@/utils/cn';
 import { formatTimestamp } from '@/utils/date';
 import { describeApiError } from '@/utils/errors';
 import { statusLabel, toneForStatus } from '@/utils/status';
 
 import { useAuthStore } from '@/modules/auth';
 import type { Product } from '@/modules/inventory';
-import { useProducts } from '@/modules/inventory';
+import {
+  getAvailableStock,
+  getStockLabel,
+  getStockTone,
+  inventoryService,
+  useProducts,
+} from '@/modules/inventory';
 
 import { OrderBillPreviewModal } from '../components/OrderBillPreviewModal';
 import {
@@ -105,6 +114,15 @@ export function OrderDetailPage() {
   // location-scoped a moment later.
   const productsQuery = useProducts(order?.locationId, { enabled: Boolean(order) });
   const { ensureBillUploaded } = useOrderBill();
+  // Cross-references an already-placed line's `productId` against this same
+  // fetch's stock numbers — `OrderItem` itself carries no stock field (it's
+  // a server-echoed price/qty snapshot), so this is the only way to flag a
+  // line that now exceeds on-hand stock (e.g. it was added before a stock
+  // adjustment/another order ate into it).
+  const productById = useMemo(
+    () => new Map((productsQuery.data ?? []).map((product) => [product.id, product])),
+    [productsQuery.data],
+  );
 
   const [addItemSearch, setAddItemSearch] = useState('');
   const [pendingCancel, setPendingCancel] = useState(false);
@@ -165,6 +183,33 @@ export function OrderDetailPage() {
     mutationFn: (request: OrderItemRequest) => billingService.addItem(orderId as string, request),
     onSuccess: invalidateOrder,
     onError: (error) => showToast({ tone: 'danger', message: describeApiError(error) }),
+  });
+
+  const setApplyGstMutation = useMutation({
+    mutationFn: (applyGst: boolean) => billingService.setApplyGst(orderId as string, applyGst),
+    onSuccess: invalidateOrder,
+    onError: (error) => showToast({ tone: 'danger', message: describeApiError(error) }),
+  });
+
+  // Scan-to-cart: same `handleAddProduct` a manual tile click already goes
+  // through, so the add-item mutation/backend path above is untouched.
+  // Hooks must run unconditionally on every render (this component has an
+  // early return below for the loading/not-found states), so `order` is
+  // read defensively here via optional chaining rather than relying on
+  // `canEditItems`, which isn't computed until after that early return.
+  // `order.businessId` scopes the lookup unambiguously — unlike New Order,
+  // this screen is always working within one already-fixed order/business.
+  useBarcodeScanner({
+    enabled: order?.status === 'pending' || order?.status === 'kot_fired',
+    onScan: async (code) => {
+      if (!order) return;
+      try {
+        const product = await inventoryService.lookupProductByCode(code, order.businessId);
+        handleAddProduct(product);
+      } catch (error) {
+        showToast({ tone: 'danger', message: describeApiError(error) });
+      }
+    },
   });
 
   /**
@@ -257,8 +302,24 @@ export function OrderDetailPage() {
       {
         key: 'quantity',
         header: 'Qty',
-        width: '70px',
-        render: (item) => formatQuantity(item.quantity),
+        width: '110px',
+        render: (item) => {
+          const product = productById.get(item.productId);
+          const available = product ? getAvailableStock(product, order?.locationId) : null;
+          const short = available !== null && Number(item.quantity) > available;
+          return (
+            <span className="flex flex-col">
+              <span className={short ? 'font-semibold text-danger' : undefined}>
+                {formatQuantity(item.quantity)}
+              </span>
+              {short ? (
+                <span className="text-[10px] font-medium text-danger">
+                  Only {available} in stock
+                </span>
+              ) : null}
+            </span>
+          );
+        },
       },
       {
         key: 'unitPrice',
@@ -293,7 +354,7 @@ export function OrderDetailPage() {
         render: (item) => <span className="font-semibold text-ink">₹{item.lineTotal}</span>,
       },
     ],
-    [],
+    [productById, order?.locationId],
   );
 
   if (orderQuery.isLoading) return <Loader label="Loading order…" />;
@@ -331,19 +392,41 @@ export function OrderDetailPage() {
     if (product.businessId !== order.businessId) return false;
     const term = addItemSearch.trim().toLowerCase();
     if (!term) return true;
-    return product.name.toLowerCase().includes(term) || product.sku.toLowerCase().includes(term);
+    return (
+      product.name.toLowerCase().includes(term) ||
+      product.sku.toLowerCase().includes(term) ||
+      (product.barcode ?? '').toLowerCase().includes(term)
+    );
   });
 
   function handleAddProduct(product: Product) {
     const existing = order?.items.find((item) => item.productId === product.id);
     const nextQuantity = existing ? Number(existing.quantity) + 1 : 1;
+    // Client-side heads-up, not a replacement for the backend's own check
+    // (`OrderService._upsert_item` now rejects this too) — this just avoids
+    // a round-trip for the common case, and gives a friendlier message.
+    const available = getAvailableStock(product, order?.locationId);
+    if (available !== null && nextQuantity > available) {
+      showToast({
+        tone: available <= 0 ? 'danger' : 'warning',
+        message:
+          available <= 0
+            ? `'${product.name}' is out of stock at this location.`
+            : `Only ${available} of '${product.name}' in stock.`,
+      });
+      return;
+    }
     // Bumping an already-added line's quantity re-sends its *current*
     // discount (the backend's `_upsert_item` always overwrites
     // `discount_percent` from whatever's sent, even on an existing line) —
     // only a brand-new line falls back to this location's effective
     // default (the product's own, or an override for this order's location).
     const discountPercent = existing ? existing.discountPercent : product.effectiveDiscountPercent;
-    addItemMutation.mutate({ productId: product.id, quantity: String(nextQuantity), discountPercent });
+    addItemMutation.mutate({
+      productId: product.id,
+      quantity: String(nextQuantity),
+      discountPercent,
+    });
   }
 
   function getItemRowActions(item: OrderItem): DataTableRowAction<OrderItem>[] {
@@ -395,6 +478,70 @@ export function OrderDetailPage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
         <div className="flex flex-col gap-4">
+          {/*
+            Order info (left) / Customer (right) — the same "document
+            details" / "who it's for" pairing PurchaseOrderDetailPage uses
+            for Supplier/PO info, shown above the items rather than tucked
+            into the sidebar. Confined to this column's own width (not the
+            full page) so it doesn't crowd out the sidebar beside it.
+          */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Card>
+              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
+                Order info
+              </p>
+              <div className="flex flex-col gap-1.5 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-ink-soft">Order #</span>
+                  <span className="font-medium text-ink">{order.orderNumber ?? '—'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-ink-soft">Type</span>
+                  <span className="font-medium text-ink">{ORDER_TYPE_LABELS[order.orderType]}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-ink-soft">Location</span>
+                  <span className="truncate pl-2 font-medium text-ink">{order.locationName}</span>
+                </div>
+                {order.tableNumber ? (
+                  <div className="flex justify-between">
+                    <span className="text-ink-soft">Table</span>
+                    <span className="font-medium text-ink">{order.tableNumber}</span>
+                  </div>
+                ) : null}
+                {order.tokenNumber ? (
+                  <div className="flex justify-between">
+                    <span className="text-ink-soft">Token</span>
+                    <span className="font-medium text-ink">#{order.tokenNumber}</span>
+                  </div>
+                ) : null}
+                <div className="flex justify-between">
+                  <span className="text-ink-soft">Placed</span>
+                  <span className="font-medium text-ink">{formatTimestamp(order.createdAt)}</span>
+                </div>
+              </div>
+            </Card>
+
+            <Card>
+              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
+                Customer
+              </p>
+              <div className="flex flex-col gap-1 text-sm text-ink">
+                <p className="font-medium">{order.customerName || 'Walk-in'}</p>
+                <p className="text-ink-soft">{order.customerPhone}</p>
+                {order.customerEmail ? (
+                  <p className="text-ink-soft">{order.customerEmail}</p>
+                ) : null}
+                {order.customerGstin ? (
+                  <p className="text-xs text-ink-faint">GSTIN: {order.customerGstin}</p>
+                ) : null}
+                {order.note ? (
+                  <p className="mt-2 text-xs text-ink-faint">Note: {order.note}</p>
+                ) : null}
+              </div>
+            </Card>
+          </div>
+
           <Card>
             <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
               Items{order.items.length ? ` (${order.items.length})` : ''}
@@ -426,27 +573,48 @@ export function OrderDetailPage() {
                   <p className="mt-3 text-xs text-ink-faint">No matching products.</p>
                 ) : (
                   <div className="mt-3 grid max-h-72 grid-cols-1 gap-2 overflow-auto pr-1 sm:grid-cols-2">
-                    {addableProducts.map((product) => (
-                      <button
-                        key={product.id}
-                        type="button"
-                        onClick={() => handleAddProduct(product)}
-                        disabled={addItemMutation.isPending}
-                        className="flex flex-col items-start gap-0.5 rounded-control border border-border p-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5 disabled:opacity-50"
-                      >
-                        <span className="flex w-full items-center justify-between gap-2">
-                          <span className="truncate text-sm font-semibold text-ink">
-                            {product.name}
+                    {addableProducts.map((product) => {
+                      const stockLabel = getStockLabel(product, order.locationId);
+                      const outOfStock = getAvailableStock(product, order.locationId) === 0;
+                      return (
+                        <button
+                          key={product.id}
+                          type="button"
+                          onClick={() => handleAddProduct(product)}
+                          disabled={addItemMutation.isPending || outOfStock}
+                          className="flex flex-col items-start gap-0.5 rounded-control border border-border p-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent"
+                        >
+                          <span className="flex w-full items-center justify-between gap-2">
+                            <span className="truncate text-sm font-semibold text-ink">
+                              {product.name}
+                            </span>
+                            {existingProductIds.has(product.id) ? (
+                              <Badge tone="accent">In order</Badge>
+                            ) : null}
                           </span>
-                          {existingProductIds.has(product.id) ? (
-                            <Badge tone="accent">In order</Badge>
-                          ) : null}
-                        </span>
-                        <span className="text-sm font-semibold text-brand">
-                          ₹{product.effectiveSellingPrice}
-                        </span>
-                      </button>
-                    ))}
+                          <span className="flex w-full items-center justify-between gap-2">
+                            <span className="text-sm font-semibold text-brand">
+                              ₹{product.effectiveSellingPrice}
+                            </span>
+                            {stockLabel ? (
+                              <span
+                                className={cn(
+                                  'shrink-0 text-[11px] font-medium',
+                                  getStockTone(product, order.locationId) === 'danger' &&
+                                    'text-danger',
+                                  getStockTone(product, order.locationId) === 'warning' &&
+                                    'text-warning-text',
+                                  getStockTone(product, order.locationId) === 'faint' &&
+                                    'text-ink-faint',
+                                )}
+                              >
+                                {stockLabel}
+                              </span>
+                            ) : null}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -512,6 +680,16 @@ export function OrderDetailPage() {
           <Card>
             <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">Totals</p>
             <div className="flex flex-col gap-1.5 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-ink-soft">Apply GST</span>
+                <Switch
+                  size="sm"
+                  checked={order.applyGst}
+                  disabled={!canEditItems || setApplyGstMutation.isPending}
+                  onCheckedChange={(checked) => setApplyGstMutation.mutate(checked)}
+                  label="Apply GST"
+                />
+              </div>
               <div className="flex justify-between text-ink-soft">
                 <span>Subtotal</span>
                 <span>₹{order.subtotal}</span>
@@ -530,59 +708,6 @@ export function OrderDetailPage() {
                 <span>Total</span>
                 <span>₹{order.total}</span>
               </div>
-            </div>
-          </Card>
-
-          <Card>
-            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-              Order info
-            </p>
-            <div className="flex flex-col gap-1.5 text-sm">
-              <div className="flex justify-between">
-                <span className="text-ink-soft">Order #</span>
-                <span className="font-medium text-ink">{order.orderNumber ?? '—'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-ink-soft">Type</span>
-                <span className="font-medium text-ink">{ORDER_TYPE_LABELS[order.orderType]}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-ink-soft">Location</span>
-                <span className="truncate pl-2 font-medium text-ink">{order.locationName}</span>
-              </div>
-              {order.tableNumber ? (
-                <div className="flex justify-between">
-                  <span className="text-ink-soft">Table</span>
-                  <span className="font-medium text-ink">{order.tableNumber}</span>
-                </div>
-              ) : null}
-              {order.tokenNumber ? (
-                <div className="flex justify-between">
-                  <span className="text-ink-soft">Token</span>
-                  <span className="font-medium text-ink">#{order.tokenNumber}</span>
-                </div>
-              ) : null}
-              <div className="flex justify-between">
-                <span className="text-ink-soft">Placed</span>
-                <span className="font-medium text-ink">{formatTimestamp(order.createdAt)}</span>
-              </div>
-            </div>
-          </Card>
-
-          <Card>
-            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-              Customer
-            </p>
-            <div className="flex flex-col gap-1 text-sm text-ink">
-              <p className="font-medium">{order.customerName || 'Walk-in'}</p>
-              <p className="text-ink-soft">{order.customerPhone}</p>
-              {order.customerEmail ? <p className="text-ink-soft">{order.customerEmail}</p> : null}
-              {order.customerGstin ? (
-                <p className="text-xs text-ink-faint">GSTIN: {order.customerGstin}</p>
-              ) : null}
-              {order.note ? (
-                <p className="mt-2 text-xs text-ink-faint">Note: {order.note}</p>
-              ) : null}
             </div>
           </Card>
 
@@ -615,7 +740,6 @@ export function OrderDetailPage() {
               </div>
             </Card>
           ) : null}
-
         </div>
       </div>
 
@@ -644,7 +768,9 @@ export function OrderDetailPage() {
               Back
             </Button>
             <Button
-              isLoading={transitionMutation.isPending && transitionMutation.variables === 'completed'}
+              isLoading={
+                transitionMutation.isPending && transitionMutation.variables === 'completed'
+              }
               onClick={() => transitionMutation.mutate('completed')}
             >
               Confirm payment

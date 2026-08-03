@@ -77,6 +77,8 @@ export interface PurchaseOrderItem {
   mfgDate: string | null;
   expiryDate: string | null;
   mrp: string | null;
+  /** Live from `Product.unit` — not snapshotted, formatting-only (e.g. `'pcs'`, `'kg'`). */
+  unit: string;
 }
 
 /**

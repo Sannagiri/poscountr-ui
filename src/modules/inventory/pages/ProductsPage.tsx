@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Ban, CheckCircle2, Pencil, Upload } from 'lucide-react';
+import { Ban, Barcode, CheckCircle2, Pencil, ScanBarcode, Upload } from 'lucide-react';
 
 import type { DataTableColumn, DataTableFilter, DataTableRowAction } from '@/components';
 import { Badge, Button, Card, ConfirmDialog, DataTable, PageHeader, useToast } from '@/components';
@@ -11,8 +11,10 @@ import { useAuthStore } from '@/modules/auth';
 import type { BusinessEntity, EntityType } from '@/modules/businesses';
 import { ChooseBusinessModal, useBusinesses } from '@/modules/businesses';
 
+import { BarcodeLabelPreviewModal } from '../components/BarcodeLabelPreviewModal';
 import { ImportProductsModal } from '../components/ImportProductsModal';
 import { ProductFormModal } from '../components/ProductFormModal';
+import { ProductLookupModal } from '../components/ProductLookupModal';
 import { ProductThumbnail } from '../components/ProductThumbnail';
 import {
   formatQuantity,
@@ -89,6 +91,8 @@ export function ProductsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [importBusinessId, setImportBusinessId] = useState<string | undefined>(undefined);
   const [pendingToggle, setPendingToggle] = useState<PendingToggle>(null);
+  const [labelTarget, setLabelTarget] = useState<Product | null>(null);
+  const [lookupOpen, setLookupOpen] = useState(false);
 
   const toggleMutation = useMutation({
     mutationFn: async (action: NonNullable<PendingToggle>): Promise<string | null> => {
@@ -234,6 +238,7 @@ export function ProductsPage() {
   const rowActions: DataTableRowAction<Product>[] = useMemo(
     () => [
       { label: 'Edit', icon: Pencil, onSelect: (row) => setFormTarget(row) },
+      { label: 'Print label', icon: Barcode, onSelect: (row) => setLabelTarget(row) },
       {
         label: 'Deactivate',
         icon: Ban,
@@ -284,6 +289,13 @@ export function ProductsPage() {
           onRowClick={(row) => setFormTarget(row)}
           toolbarTrailing={
             <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                leadingIcon={<ScanBarcode size={14} />}
+                onClick={() => setLookupOpen(true)}
+              >
+                Scan barcode
+              </Button>
               <Button variant="secondary" leadingIcon={<Upload size={14} />} onClick={startImport}>
                 Import
               </Button>
@@ -328,6 +340,10 @@ export function ProductsPage() {
         businessId={importBusinessId}
         onOpenChange={setImportOpen}
       />
+
+      <BarcodeLabelPreviewModal product={labelTarget} onClose={() => setLabelTarget(null)} />
+
+      <ProductLookupModal open={lookupOpen} onClose={() => setLookupOpen(false)} />
 
       <ConfirmDialog
         open={pendingToggle !== null}

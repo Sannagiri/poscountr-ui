@@ -1,13 +1,14 @@
 import type { ChangeEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { AlertCircle, Check, FileText, Loader2, Palette, ShieldCheck } from 'lucide-react';
+import { AlertCircle, Check, Loader2, Palette, ShieldCheck } from 'lucide-react';
 
 import { Card, CardHeader, Input, PageHeader, Select, Switch } from '@/components';
 import { cn } from '@/utils/cn';
 import { describeApiError } from '@/utils/errors';
 
 import { useBusinesses } from '@/modules/businesses';
+import { DefaultLayoutSelector } from '@/modules/documentLayouts';
 
 import { InvoiceLogoField } from '../components/InvoiceLogoField';
 import { SETTINGS_QUERY_KEYS } from '../constants/settings.constants';
@@ -23,8 +24,6 @@ const EMPTY_INVOICE_VALUES: InvoiceSettingsFormValues = {
   numberingPrefix: '',
   numberingFormat: '',
   numberingStart: '0001',
-  headerNote: '',
-  footerNote: '',
   showCustomerGstin: true,
   paperWidth: '80mm',
 };
@@ -32,6 +31,7 @@ const EMPTY_INVOICE_VALUES: InvoiceSettingsFormValues = {
 const PAPER_WIDTH_OPTIONS = [
   { value: '58mm', label: '58mm' },
   { value: '80mm', label: '80mm' },
+  { value: 'a4', label: 'A4 (formal tax invoice)' },
 ];
 
 /** How long to let typing settle before autosaving a field change. */
@@ -98,8 +98,6 @@ export function InvoiceSettingsPage() {
       numberingPrefix: invoiceSettingsQuery.data.numberingPrefix,
       numberingFormat: invoiceSettingsQuery.data.numberingFormat,
       numberingStart: invoiceSettingsQuery.data.numberingStart,
-      headerNote: invoiceSettingsQuery.data.headerNote,
-      footerNote: invoiceSettingsQuery.data.footerNote,
       showCustomerGstin: invoiceSettingsQuery.data.showCustomerGstin,
       paperWidth: invoiceSettingsQuery.data.paperWidth,
     };
@@ -245,8 +243,8 @@ export function InvoiceSettingsPage() {
                   name="paperWidth"
                   render={({ field }) => (
                     <Select
-                      label="Bill paper width"
-                      hint="Thermal/KOT printer roll width for the downloadable bill"
+                      label="Invoice format"
+                      hint="Thermal roll width for a receipt, or A4 for a formal tax invoice document"
                       value={field.value}
                       onChange={field.onChange}
                       options={PAPER_WIDTH_OPTIONS}
@@ -257,36 +255,28 @@ export function InvoiceSettingsPage() {
             </div>
           </Card>
 
-          <Card>
-            <CardHeader
-              icon={FileText}
-              title="Invoice notes"
-              subtitle="Optional text shown on every invoice for this business"
+          {/* Header/footer note fields removed — that free text is now authored directly in the layout builder (`/layouts`), reused across every document rendered with that layout, rather than a single per-business default here. */}
+
+          {watch('paperWidth') === 'a4' ? (
+            <DefaultLayoutSelector
+              businessId={selectedBusinessId}
+              documentType="invoice"
+              documentLabel="invoices"
             />
-            <div className="flex flex-col gap-4">
-              <Input
-                label="Header note (optional)"
-                placeholder="Tagline shown under your business name/address"
-                {...register('headerNote')}
-                errorMessage={errors.headerNote?.message}
-              />
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="footerNote" className="text-xs font-semibold text-ink-soft">
-                  Footer note (optional)
-                </label>
-                <textarea
-                  id="footerNote"
-                  rows={3}
-                  placeholder="Terms, bank details, thank-you note, etc."
-                  {...register('footerNote')}
-                  className="rounded-control border border-border bg-white px-3 py-2 text-sm text-ink transition-colors placeholder:text-ink-faint hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
-                />
-              </div>
-            </div>
-          </Card>
+          ) : (
+            <DefaultLayoutSelector
+              businessId={selectedBusinessId}
+              documentType="thermal_bill"
+              documentLabel="thermal receipts"
+            />
+          )}
 
           <Card>
-            <CardHeader icon={ShieldCheck} title="GST display" subtitle="B2B invoice compliance options" />
+            <CardHeader
+              icon={ShieldCheck}
+              title="GST display"
+              subtitle="B2B invoice compliance options"
+            />
             <Controller
               control={control}
               name="showCustomerGstin"

@@ -4,7 +4,7 @@ import type { ReportsDashboardFilters } from '../types/reports.types';
 
 import { useQuery } from '@tanstack/react-query';
 
-/** The Sales-summary dashboard's data source — `from`/`to` are required, so the query stays disabled until both are set (guards the brief window before `ReportsPage` derives its initial date range). */
+/** The Sales-summary dashboard's data source — `from`/`to` are required, so the query stays disabled until both are set (guards the brief window before `SalesReportsPage` derives its initial date range). */
 export function useReportsDashboard(filters: ReportsDashboardFilters) {
   return useQuery({
     queryKey: REPORTS_QUERY_KEYS.dashboard(filters),

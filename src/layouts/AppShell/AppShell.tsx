@@ -60,9 +60,23 @@ export function AppShell() {
           needs to observe intersection against *this* element (not the
           browser viewport), since this `<main>`, not `window`, is what
           scrolls.
+
+          Neither this element nor the inner wrapper carries *top* padding —
+          `PageHeader` (the first thing every routed page renders,
+          docs/coding-standards.md §13) supplies its own `pt-5` as part of
+          its `sticky top-0` box (see that component's own doc comment for
+          why: baking it into the sticky box itself, rather than sourcing it
+          from an ancestor, keeps the header's resting and stuck appearance
+          pixel-identical — no snap/jump right at the scroll threshold, and
+          no cross-browser ambiguity over whether a scrolling ancestor's own
+          top padding counts toward a nested sticky child's `top: 0`).
+          Bottom padding (`pb-5`) stays on the inner wrapper — it's normal
+          trailing whitespace at the end of a page's content, nothing to do
+          with the sticky header. Horizontal padding stays on `main` since
+          it never interacts with vertical sticky positioning either way.
         */}
-        <main data-scroll-root className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
-          <div className="mx-auto w-full max-w-[1600px]">
+        <main data-scroll-root className="flex-1 overflow-y-auto px-4 sm:px-6">
+          <div className="mx-auto w-full max-w-[1600px] pb-5">
             <Outlet />
           </div>
         </main>

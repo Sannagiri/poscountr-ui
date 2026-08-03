@@ -8,6 +8,7 @@ import { cn } from '@/utils/cn';
 import { describeApiError } from '@/utils/errors';
 
 import { isPurchasingEntityType, useBusinesses } from '@/modules/businesses';
+import { DefaultLayoutSelector } from '@/modules/documentLayouts';
 
 import { ORDER_RESET_PERIOD_OPTIONS, SETTINGS_QUERY_KEYS } from '../constants/settings.constants';
 import { usePurchaseSettings } from '../hooks/usePurchaseSettings';
@@ -45,7 +46,10 @@ export function PurchaseSettingsPage() {
 
   const businessesQuery = useBusinesses();
   const purchasingBusinesses = useMemo(
-    () => (businessesQuery.data ?? []).filter((business) => isPurchasingEntityType(business.entityType)),
+    () =>
+      (businessesQuery.data ?? []).filter((business) =>
+        isPurchasingEntityType(business.entityType),
+      ),
     [businessesQuery.data],
   );
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | undefined>(undefined);
@@ -94,7 +98,10 @@ export function PurchaseSettingsPage() {
       return settingsService.updatePurchaseSettings(selectedBusinessId, values);
     },
     onSuccess: (data, values) => {
-      queryClient.setQueryData(SETTINGS_QUERY_KEYS.purchaseSettings(selectedBusinessId ?? ''), data);
+      queryClient.setQueryData(
+        SETTINGS_QUERY_KEYS.purchaseSettings(selectedBusinessId ?? ''),
+        data,
+      );
       lastSavedRef.current = JSON.stringify(values);
       setSaveStatus('saved');
       setSaveErrorMessage(null);
@@ -173,47 +180,55 @@ export function PurchaseSettingsPage() {
           <p className="text-sm text-danger">{describeApiError(purchaseSettingsQuery.error)}</p>
         </Card>
       ) : purchaseSettingsQuery.data ? (
-        <Card>
-          <CardHeader
-            icon={Hash}
-            title="Purchase order numbering"
-            subtitle="How purchase order numbers are generated for this business"
+        <div className="flex flex-col gap-3.5">
+          <Card>
+            <CardHeader
+              icon={Hash}
+              title="Purchase order numbering"
+              subtitle="How purchase order numbers are generated for this business"
+            />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <Controller
+                name="resetPeriod"
+                control={control}
+                render={({ field }) => (
+                  <Select
+                    label="Resets"
+                    options={ORDER_RESET_PERIOD_OPTIONS}
+                    value={field.value}
+                    onChange={field.onChange}
+                  />
+                )}
+              />
+              <Input
+                label="Numbering prefix (optional)"
+                placeholder="PO"
+                {...register('numberingPrefix')}
+                errorMessage={errors.numberingPrefix?.message}
+              />
+              <Input
+                label="Starting number"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                placeholder="0001"
+                hint="Leading zeros set the padding width — e.g. 0001 → 4 digits"
+                {...register('numberingStart', {
+                  onChange: (event: ChangeEvent<HTMLInputElement>) => {
+                    event.target.value = event.target.value.replace(/\D/g, '').slice(0, 10);
+                  },
+                })}
+                errorMessage={errors.numberingStart?.message}
+              />
+            </div>
+          </Card>
+
+          <DefaultLayoutSelector
+            businessId={selectedBusinessId}
+            documentType="purchase_order"
+            documentLabel="purchase orders"
           />
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Controller
-              name="resetPeriod"
-              control={control}
-              render={({ field }) => (
-                <Select
-                  label="Resets"
-                  options={ORDER_RESET_PERIOD_OPTIONS}
-                  value={field.value}
-                  onChange={field.onChange}
-                />
-              )}
-            />
-            <Input
-              label="Numbering prefix (optional)"
-              placeholder="PO"
-              {...register('numberingPrefix')}
-              errorMessage={errors.numberingPrefix?.message}
-            />
-            <Input
-              label="Starting number"
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              placeholder="0001"
-              hint="Leading zeros set the padding width — e.g. 0001 → 4 digits"
-              {...register('numberingStart', {
-                onChange: (event: ChangeEvent<HTMLInputElement>) => {
-                  event.target.value = event.target.value.replace(/\D/g, '').slice(0, 10);
-                },
-              })}
-              errorMessage={errors.numberingStart?.message}
-            />
-          </div>
-        </Card>
+        </div>
       ) : null}
     </div>
   );

@@ -4,7 +4,14 @@ import { ChangePinPage, LoginPage } from '@/modules/auth';
 import { KitchenPage, NewOrderPage, OrderDetailPage, OrdersPage } from '@/modules/billing';
 import { BusinessesPage, LocationsPage } from '@/modules/businesses';
 import { DashboardPage } from '@/modules/dashboard';
+import {
+  LayoutEditorPage,
+  LayoutListPage,
+  ThermalLayoutEditorPage,
+} from '@/modules/documentLayouts';
 import { ProductsPage } from '@/modules/inventory';
+import { NotificationsPage } from '@/modules/notifications';
+import { PaymentDetailsPage } from '@/modules/paymentDetails';
 import {
   AuditLogPage,
   LicenseTypesPage,
@@ -19,7 +26,13 @@ import {
   PurchaseOrdersPage,
   SuppliersPage,
 } from '@/modules/purchasing';
-import { ReportsPage } from '@/modules/reports';
+import { NewQuotationPage, QuotationDetailPage, QuotationsPage } from '@/modules/quotations';
+import {
+  CompareReportsPage,
+  GstReportsPage,
+  PurchaseReportsPage,
+  SalesReportsPage,
+} from '@/modules/reports';
 import { InvoiceSettingsPage, OrderSettingsPage, PurchaseSettingsPage } from '@/modules/settings';
 import { TeamAdminsPage, TeamStaffPage } from '@/modules/team';
 
@@ -62,6 +75,7 @@ export const router = createBrowserRouter([
             element: <RequireRole roles={[...OWNER_ROLES]} />,
             children: [
               { path: '/dashboard', element: <DashboardPage /> },
+              { path: '/notifications', element: <NotificationsPage /> },
               { path: '/inventory', element: <ProductsPage /> },
               { path: '/orders', element: <OrdersPage /> },
               { path: '/orders/new', element: <NewOrderPage /> },
@@ -76,8 +90,22 @@ export const router = createBrowserRouter([
               { path: '/purchase-orders', element: <PurchaseOrdersPage /> },
               { path: '/purchase-orders/new', element: <NewPurchaseOrderPage /> },
               { path: '/purchase-orders/:purchaseOrderId', element: <PurchaseOrderDetailPage /> },
+              // Reachable by URL even where the sidebar hides them (a
+              // restaurant/cafe business) — same "route stays open, only the
+              // nav entry is gated" approach the purchasing routes above
+              // already take.
+              { path: '/quotations', element: <QuotationsPage /> },
+              { path: '/quotations/new', element: <NewQuotationPage /> },
+              { path: '/quotations/:quotationId', element: <QuotationDetailPage /> },
               { path: '/kitchen', element: <KitchenPage /> },
-              { path: '/reports', element: <ReportsPage /> },
+              // Old combined-tabs URL — redirect to the first (so far only)
+              // report rather than 404 anyone with it bookmarked (same
+              // "old combined URL" pattern as `/team`/`/settings` below).
+              { path: '/reports', element: <Navigate to="/reports/sales" replace /> },
+              { path: '/reports/sales', element: <SalesReportsPage /> },
+              { path: '/reports/purchases', element: <PurchaseReportsPage /> },
+              { path: '/reports/gst', element: <GstReportsPage /> },
+              { path: '/reports/compare', element: <CompareReportsPage /> },
             ],
           },
           {
@@ -85,6 +113,23 @@ export const router = createBrowserRouter([
             children: [
               { path: '/businesses', element: <BusinessesPage /> },
               { path: '/locations', element: <LocationsPage /> },
+              { path: '/payment-details', element: <PaymentDetailsPage /> },
+              // One page for both create and edit (`id === 'new'` means
+              // create) — see `LayoutEditorPage`'s own doc comment for why
+              // this doesn't split into a dedicated `/layouts/new` route +
+              // component the way `/purchase-orders/new` and `/quotations/new`
+              // do (those are genuinely different UIs from their own detail
+              // pages; the layout editor's create/edit forms are identical).
+              { path: '/layouts', element: <LayoutListPage /> },
+              // Thermal Bill's config shape is genuinely different from the
+              // A4 doc types' (see `ThermalLayoutEditorPage`'s own doc
+              // comment) — its own route/page rather than folded into
+              // `LayoutEditorPage`. Registered before the `:id` wildcard
+              // below only for readability; React Router already resolves
+              // the literal `thermal` segment ahead of the dynamic one
+              // regardless of declaration order.
+              { path: '/layouts/thermal/:id', element: <ThermalLayoutEditorPage /> },
+              { path: '/layouts/:id', element: <LayoutEditorPage /> },
               // Old combined-tabs URL — redirect rather than 404 for anyone
               // with it bookmarked (see `modules/team/README.md`).
               { path: '/team', element: <Navigate to="/team/admins" replace /> },

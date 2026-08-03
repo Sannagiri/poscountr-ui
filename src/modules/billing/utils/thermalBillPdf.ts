@@ -1,5 +1,10 @@
 import { jsPDF } from 'jspdf';
 
+import type {
+  ThermalHeaderZoneConfig,
+  ThermalLayoutConfig,
+} from '@/modules/documentLayouts/pdf/blockRenderers/types';
+import { addressDisplayLines, stateLabel } from '@/modules/documentLayouts/pdf/pdfPrimitives';
 import { formatQuantity } from '@/modules/inventory';
 // Concrete-file import, not the `@/modules/reports` barrel — see the note in
 // `billingService.ts` (avoids a billing <-> reports barrel cycle).
@@ -21,6 +26,10 @@ export interface ThermalBillInput {
    * sizes it. Omit or pass `null` to render the bill with no logo.
    */
   logoBlob?: Blob | null;
+  /** The business's effective (or manually resolved) Thermal Bill layout — drives the Logo zone's enable/size, Header Notes, and Footer text; everything else on the receipt (item table, totals, numbering) stays fixed/computed exactly as before layouts existed for this doc type. */
+  config: ThermalLayoutConfig;
+  /** Mirrors `OrderSettings.kotReceiptEnabled` — when true, a second page (same print job, own tear-off) is appended: a kitchen-only ticket with the order/token number and item/quantity list, no prices or branding, for a business that runs the kitchen off a manual paper ticket rather than the digital KDS board. */
+  includeKotSlip?: boolean;
 }
 
 const MARGIN_MM = 4;
@@ -38,13 +47,6 @@ const RULE_HEIGHT_MM = RULE_BEFORE_MM + RULE_AFTER_MM;
 // at LINE_HEIGHT_MM each; this gap is what makes Total read as the one that
 // stands out, not just another line in the same list.
 const TOTAL_EXTRA_GAP_MM = 1.8;
-const FONT_SIZE_PT = 8;
-const FONT_SIZE_TITLE_PT = 10;
-// The item table gets its own (smaller) size — up to 5 columns (Item/Qty/
-// Rate/GST%/Amt) have to fit across a 58mm roll's ~50mm content width; 8pt
-// left the numeric columns exactly as wide as their own values with zero
-// room for COLUMN_GAP_MM, so "Rate"/"GST%" visibly ran together.
-const ROW_FONT_SIZE_PT = 7;
 // Reserved blank space before each right-aligned column's boundary (except
 // the last column, which already ends at the true right margin) — without
 // this a value that exactly fills its column's width sits flush against the
@@ -52,18 +54,45 @@ const ROW_FONT_SIZE_PT = 7;
 const COLUMN_GAP_MM = 1.3;
 /** jsPDF's built-in Helvetica has no ₹ glyph (renders as a broken superscript) — spelled out instead, same convention real thermal-printer firmwares use for the same reason. */
 const CURRENCY_PREFIX = 'Rs. ';
-// Logo caps — a thermal receipt's logo is a small mark up top, not a banner;
-// whichever dimension (width or height) the source image would exceed first
-// is the one that drives the scale, so the aspect ratio is always preserved.
-const LOGO_MAX_WIDTH_MM = 26;
-const LOGO_MAX_HEIGHT_MM = 16;
+// Logo caps per `config.header.size` — a thermal receipt's logo is a small
+// mark up top, not a banner, so even "large" stays modest. Whichever
+// dimension (width or height) the source image would exceed first is the
+// one that drives the scale, so the aspect ratio is always preserved.
+// `medium` matches this renderer's own pre-layout-builder hardcoded box
+// (26x16mm) so an existing business's receipt doesn't visibly change size
+// just from adopting the default layout.
+const LOGO_SIZE_MM: Record<
+  ThermalHeaderZoneConfig['size'],
+  { maxWidthMm: number; maxHeightMm: number }
+> = {
+  small: { maxWidthMm: 18, maxHeightMm: 11 },
+  medium: { maxWidthMm: 26, maxHeightMm: 16 },
+  large: { maxWidthMm: 34, maxHeightMm: 21 },
+};
 const LOGO_BOTTOM_GAP_MM = 2.4;
+// Extra clearance below a dotted rule for whichever line starts the very
+// next section (right after the top rule, and right after the pre-totals
+// rule) — the rule's own RULE_AFTER_MM already puts *some* space there, but
+// those two specific lines (Bill No / Taxable value) sit close enough to
+// read as touching the dots above them; every other post-rule line (item
+// rows, column headers) doesn't have this problem since a table row's own
+// baseline sits lower within its line height.
+const SECTION_TOP_GAP_MM = 1.6;
+// Breathing room above the KOT slip's own "KOT" heading — its page has no
+// logo/business-details zone above the title the way the customer bill's
+// page can, so without this the heading sits flush against the physical top
+// edge of the tear-off.
+const KOT_TOP_GAP_MM = 3;
 // A logo uploaded for on-screen branding use is routinely 1000px+ wide —
 // jsPDF's `addImage` embeds the source pixels as-is regardless of the mm box
 // it's drawn into, so without downscaling first, a multi-MB source image
 // turns a bill that should be a few KB into several MB. 203dpi (a common
 // thermal-printhead resolution) is already sharper than this size ever
-// needs on a receipt.
+// needs on a receipt. Always decoded at the `large` tier's box for print
+// quality regardless of the configured size — `fitLogoToTier` below re-fits
+// into whichever tier is actually selected at draw time, same two-step
+// pattern the A4 renderer's `pdfPrimitives.ts`/`logoBlock.ts` already use,
+// so a re-decode is never needed just to change the Size setting.
 const LOGO_TARGET_DPI = 203;
 const MM_PER_INCH = 25.4;
 
@@ -84,17 +113,50 @@ function formatRate(rate: string): string {
   return num.toFixed(2).replace(/\.?0+$/, '') || '0';
 }
 
+/** Business name, GSTIN, location name/address, and state as the Business Details zone's centered lines — read off `Invoice`'s own denormalized business/location fields (same source `invoicePdf.ts`'s A4 letterhead reads), never a separate fetch. */
+function businessDetailsLines(invoice: Invoice): string[] {
+  const lines = [invoice.businessName];
+  if (invoice.businessGstin) lines.push(`GSTIN: ${invoice.businessGstin}`);
+  if (invoice.locationName) lines.push(invoice.locationName);
+  lines.push(
+    ...addressDisplayLines({
+      addressLine1: invoice.locationAddressLine1,
+      addressLine2: invoice.locationAddressLine2,
+      city: invoice.locationCity,
+      pincode: invoice.locationPincode,
+    }),
+  );
+  if (invoice.businessState) lines.push(stateLabel(invoice.businessState));
+  return lines;
+}
+
 interface LoadedLogo {
   dataUrl: string;
   format: 'PNG';
-  widthMm: number;
-  heightMm: number;
+  /** Natural (undistorted) aspect ratio, decoded once at the `large` tier's box — `fitLogoToTier` rescales this into whichever tier is actually configured at draw time. */
+  naturalWidthMm: number;
+  naturalHeightMm: number;
+}
+
+/** Fits `logo`'s own natural aspect ratio into `size`'s max box — same "cap width, then cap height if still too tall" algorithm `decodeLogo` itself used against the fixed `large` box, reused here against whichever tier is actually configured. */
+function fitLogoToTier(
+  logo: LoadedLogo,
+  size: ThermalHeaderZoneConfig['size'],
+): { widthMm: number; heightMm: number } {
+  const box = LOGO_SIZE_MM[size];
+  const aspect = logo.naturalWidthMm / logo.naturalHeightMm;
+  let widthMm = box.maxWidthMm;
+  let heightMm = widthMm / aspect;
+  if (heightMm > box.maxHeightMm) {
+    heightMm = box.maxHeightMm;
+    widthMm = heightMm * aspect;
+  }
+  return { widthMm, heightMm };
 }
 
 /**
  * Decodes an already-fetched logo blob into what jsPDF's `addImage` needs —
- * a data URL sized to the mm box it's drawn into (fit within
- * `LOGO_MAX_WIDTH_MM` x `LOGO_MAX_HEIGHT_MM`, aspect ratio preserved), not
+ * a data URL sized to the `large` tier's box (aspect ratio preserved), not
  * just *displayed* at that size while carrying the full source resolution.
  * Draws through a `<canvas>` at `LOGO_TARGET_DPI` to actually downscale the
  * pixels — `img.src` is a same-origin `blob:` URL (the blob came from this
@@ -113,10 +175,11 @@ async function decodeLogo(blob: Blob): Promise<LoadedLogo | null> {
     });
     if (!img.naturalWidth || !img.naturalHeight) return null;
 
-    let widthMm = LOGO_MAX_WIDTH_MM;
+    const largeBox = LOGO_SIZE_MM.large;
+    let widthMm = largeBox.maxWidthMm;
     let heightMm = widthMm * (img.naturalHeight / img.naturalWidth);
-    if (heightMm > LOGO_MAX_HEIGHT_MM) {
-      heightMm = LOGO_MAX_HEIGHT_MM;
+    if (heightMm > largeBox.maxHeightMm) {
+      heightMm = largeBox.maxHeightMm;
       widthMm = heightMm * (img.naturalWidth / img.naturalHeight);
     }
 
@@ -129,12 +192,33 @@ async function decodeLogo(blob: Blob): Promise<LoadedLogo | null> {
     if (!ctx) return null;
     ctx.drawImage(img, 0, 0, widthPx, heightPx);
 
-    return { dataUrl: canvas.toDataURL('image/png'), format: 'PNG', widthMm, heightMm };
+    return {
+      dataUrl: canvas.toDataURL('image/png'),
+      format: 'PNG',
+      naturalWidthMm: widthMm,
+      naturalHeightMm: heightMm,
+    };
   } catch {
     return null;
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
+}
+
+/**
+ * jsPDF's own `_addPage`/constructor silently SWAPS a custom `[width, height]`
+ * array when it disagrees with the requested orientation — `'p'` (jsPDF's
+ * default) swaps to `[height, width]` whenever `width > height`, and `'l'`
+ * does the same whenever `height > width`. A receipt's actual page is always
+ * `widthMm` (58/80, the fixed roll width) by `heightMm` (from content) — for
+ * a short KOT slip `heightMm` can end up SMALLER than `widthMm`, and jsPDF's
+ * default `'p'` would then swap the two, silently rendering everything at
+ * the wrong width. Picking whichever orientation's swap condition is false
+ * for the actual `width`/`height` given keeps the array exactly as passed,
+ * regardless of which side happens to be larger.
+ */
+function orientationFor(widthMm: number, heightMm: number): 'p' | 'l' {
+  return widthMm <= heightMm ? 'p' : 'l';
 }
 
 type Align = 'left' | 'center' | 'right';
@@ -144,7 +228,7 @@ type Block =
   | { kind: 'text'; lines: string[]; bold?: boolean; align?: Align; gapBeforeMm?: number }
   | { kind: 'rule' }
   | { kind: 'row'; cells: string[]; widths: number[]; aligns: Align[]; bold?: boolean }
-  | { kind: 'image'; logo: LoadedLogo };
+  | { kind: 'image'; logo: LoadedLogo; widthMm: number; heightMm: number };
 
 interface ItemColumns {
   headers: string[];
@@ -160,7 +244,7 @@ interface ItemColumns {
  * Item-table shape depends on whether every line shares one GST rate:
  * uniform -> Item/Qty/Rate/Amt (rate% is stated once in the totals block);
  * mixed -> an extra GST% column per line, and totals show plain amounts.
- * Column shares are tuned against `ROW_FONT_SIZE_PT` + `COLUMN_GAP_MM` so the
+ * Column shares are tuned against the row font size + `COLUMN_GAP_MM` so the
  * numeric columns' own widest realistic value still fits with room to spare
  * — see the measured-width check that motivated these specific fractions.
  */
@@ -206,37 +290,58 @@ function buildItemColumns(order: Order, contentWidthMm: number): ItemColumns {
   };
 }
 
-function buildBlocks(measure: jsPDF, contentWidthMm: number, input: ThermalBillInput, logo: LoadedLogo | null): Block[] {
-  const { invoice, order, invoiceSettings } = input;
+function buildBlocks(
+  measure: jsPDF,
+  contentWidthMm: number,
+  input: ThermalBillInput,
+  logo: LoadedLogo | null,
+): Block[] {
+  const { invoice, order, config } = input;
   const blocks: Block[] = [];
 
   const wrap = (text: string, widthMm: number = contentWidthMm) =>
     measure.splitTextToSize(text, widthMm) as string[];
 
-  // Top of the bill: logo, then the header note — nothing else. Business
-  // name/address/GSTIN intentionally don't appear here (the logo already
-  // carries the business's identity); they're still fully present on the
-  // stored `Invoice` row itself for GST/audit purposes, just not printed.
-  if (logo) blocks.push({ kind: 'image', logo });
-  if (invoiceSettings.headerNote) {
-    blocks.push({ kind: 'text', lines: wrap(invoiceSettings.headerNote), align: 'center' });
+  // Top of the bill: logo, then Business Details (only when its position is
+  // `'top'` — `'footer'` renders it at the bottom instead, `'none'` never
+  // renders it; the two positions are mutually exclusive, never both), then
+  // Header Notes.
+  if (logo && config.header.enabled) {
+    const { widthMm, heightMm } = fitLogoToTier(logo, config.header.size);
+    blocks.push({ kind: 'image', logo, widthMm, heightMm });
+  }
+  if (config.business_details?.position === 'top') {
+    blocks.push({ kind: 'text', lines: businessDetailsLines(invoice), align: 'center' });
+  }
+  if (config.header_notes.enabled && config.header_notes.text) {
+    blocks.push({ kind: 'text', lines: wrap(config.header_notes.text), align: 'center' });
   }
   blocks.push({ kind: 'rule' });
 
   // Middle section: invoice/order meta, items, totals.
-  blocks.push({ kind: 'text', lines: wrap(`Bill No: ${invoice.invoiceNumber}`) });
+  blocks.push({
+    kind: 'text',
+    lines: wrap(`Bill No: ${invoice.invoiceNumber}`),
+    gapBeforeMm: SECTION_TOP_GAP_MM,
+  });
   blocks.push({ kind: 'text', lines: wrap(`Date: ${formatDate(invoice.issuedAt)}`) });
   if (order.orderNumber) blocks.push({ kind: 'text', lines: wrap(`Order: ${order.orderNumber}`) });
   if (order.tokenNumber) blocks.push({ kind: 'text', lines: wrap(`Token: #${order.tokenNumber}`) });
   blocks.push({ kind: 'text', lines: wrap(`Customer: ${invoice.customerName || 'Walk-in'}`) });
   if (invoice.customerPhone) blocks.push({ kind: 'text', lines: wrap(invoice.customerPhone) });
-  if (invoiceSettings.showCustomerGstin && invoice.customerGstin) {
+  if (input.invoiceSettings.showCustomerGstin && invoice.customerGstin) {
     blocks.push({ kind: 'text', lines: wrap(`Customer GSTIN: ${invoice.customerGstin}`) });
   }
   blocks.push({ kind: 'rule' });
 
   const columns = buildItemColumns(order, contentWidthMm);
-  blocks.push({ kind: 'row', cells: columns.headers, widths: columns.widths, aligns: columns.aligns, bold: true });
+  blocks.push({
+    kind: 'row',
+    cells: columns.headers,
+    widths: columns.widths,
+    aligns: columns.aligns,
+    bold: true,
+  });
   blocks.push({ kind: 'rule' });
   const rates = new Set(order.items.map((item) => item.gstRate));
   const isUniformRate = rates.size <= 1;
@@ -265,9 +370,25 @@ function buildBlocks(measure: jsPDF, contentWidthMm: number, input: ThermalBillI
   // rate; a mixed-rate order already carries each line's rate in its own
   // "GST%" column above, so the totals here stay plain.
   if (Number(invoice.discountAmount) > 0) {
-    blocks.push({ kind: 'text', lines: [`Order discount: -${invoice.discountAmount}`], align: 'right' });
+    blocks.push({
+      kind: 'text',
+      lines: [`Order discount: -${invoice.discountAmount}`],
+      align: 'right',
+      gapBeforeMm: SECTION_TOP_GAP_MM,
+    });
+    blocks.push({
+      kind: 'text',
+      lines: [`Taxable value: ${invoice.taxableValue}`],
+      align: 'right',
+    });
+  } else {
+    blocks.push({
+      kind: 'text',
+      lines: [`Taxable value: ${invoice.taxableValue}`],
+      align: 'right',
+      gapBeforeMm: SECTION_TOP_GAP_MM,
+    });
   }
-  blocks.push({ kind: 'text', lines: [`Taxable value: ${invoice.taxableValue}`], align: 'right' });
   const uniformRate = isUniformRate ? formatRate(order.items[0]?.gstRate ?? '0') : null;
   if (invoice.isInterstate) {
     const label = uniformRate ? `IGST @${uniformRate}%` : 'IGST';
@@ -291,11 +412,86 @@ function buildBlocks(measure: jsPDF, contentWidthMm: number, input: ThermalBillI
   });
   blocks.push({ kind: 'rule' });
 
-  // Bottom of the bill: footer note only.
-  if (invoiceSettings.footerNote) {
-    blocks.push({ kind: 'text', lines: wrap(invoiceSettings.footerNote), align: 'center' });
+  // Bottom of the bill: the single Footer zone (no footer_1..4 split — a
+  // receipt is one column wide), then Business Details when its position is
+  // `'footer'` (mutually exclusive with the `'top'` placement above).
+  if (config.footer_notes.enabled && config.footer_notes.text) {
+    blocks.push({ kind: 'text', lines: wrap(config.footer_notes.text), align: 'center' });
   }
-  blocks.push({ kind: 'text', lines: ['This is a computer-generated GST invoice.'], align: 'center' });
+  if (config.business_details?.position === 'footer') {
+    blocks.push({ kind: 'text', lines: businessDetailsLines(invoice), align: 'center' });
+  }
+
+  return blocks;
+}
+
+/**
+ * Blocks for the kitchen-only KOT slip — order/token/customer identity + a
+ * plain Item/Qty list, deliberately carrying none of the customer bill's
+ * money fields (price, tax, discount, total) or branding (logo, business
+ * details, header/footer notes): the kitchen only ever needs to know who
+ * it's for, what to cook, and how many, not what it costs. "Duplicate" right
+ * under the "KOT" heading marks it as the kitchen's own copy, distinct from
+ * the customer's bill on the page before it. Reuses `wrap`'s own measured
+ * word-wrap so the Item column wraps identically to the customer bill's own
+ * item rows.
+ */
+function buildKotBlocks(measure: jsPDF, contentWidthMm: number, input: ThermalBillInput): Block[] {
+  const { invoice, order } = input;
+  const blocks: Block[] = [];
+
+  const wrap = (text: string, widthMm: number = contentWidthMm) =>
+    measure.splitTextToSize(text, widthMm) as string[];
+
+  blocks.push({
+    kind: 'text',
+    lines: ['KOT'],
+    bold: true,
+    align: 'center',
+    gapBeforeMm: KOT_TOP_GAP_MM,
+  });
+  blocks.push({ kind: 'text', lines: ['Duplicate'], align: 'center' });
+  blocks.push({ kind: 'rule' });
+
+  blocks.push({
+    kind: 'text',
+    lines: wrap(`Date: ${formatDate(invoice.issuedAt)}`),
+    gapBeforeMm: SECTION_TOP_GAP_MM,
+  });
+  if (order.orderNumber) blocks.push({ kind: 'text', lines: wrap(`Order: ${order.orderNumber}`) });
+  if (order.tokenNumber) blocks.push({ kind: 'text', lines: wrap(`Token: #${order.tokenNumber}`) });
+  if (order.tableNumber) blocks.push({ kind: 'text', lines: wrap(`Table: ${order.tableNumber}`) });
+  blocks.push({ kind: 'text', lines: wrap(`Customer: ${invoice.customerName || 'Walk-in'}`) });
+  if (invoice.customerPhone) blocks.push({ kind: 'text', lines: wrap(invoice.customerPhone) });
+  blocks.push({ kind: 'rule' });
+
+  const nameColumnWidthMm = contentWidthMm * 0.72;
+  const qtyColumnWidthMm = contentWidthMm * 0.28;
+  blocks.push({
+    kind: 'row',
+    cells: ['Item', 'Qty'],
+    widths: [nameColumnWidthMm, qtyColumnWidthMm],
+    aligns: ['left', 'right'],
+    bold: true,
+  });
+  blocks.push({ kind: 'rule' });
+  for (const item of order.items) {
+    const nameLines = wrap(item.name, nameColumnWidthMm);
+    blocks.push({
+      kind: 'row',
+      cells: [nameLines[0] ?? item.name, formatQuantity(item.quantity)],
+      widths: [nameColumnWidthMm, qtyColumnWidthMm],
+      aligns: ['left', 'right'],
+    });
+    for (const extra of nameLines.slice(1)) {
+      blocks.push({
+        kind: 'row',
+        cells: [extra, ''],
+        widths: [nameColumnWidthMm, qtyColumnWidthMm],
+        aligns: ['left', 'right'],
+      });
+    }
+  }
 
   return blocks;
 }
@@ -303,40 +499,31 @@ function buildBlocks(measure: jsPDF, contentWidthMm: number, input: ThermalBillI
 function blockHeightMm(block: Block): number {
   if (block.kind === 'rule') return RULE_HEIGHT_MM;
   if (block.kind === 'row') return LINE_HEIGHT_MM;
-  if (block.kind === 'image') return block.logo.heightMm + LOGO_BOTTOM_GAP_MM;
+  if (block.kind === 'image') return block.heightMm + LOGO_BOTTOM_GAP_MM;
   return block.lines.length * LINE_HEIGHT_MM + (block.gapBeforeMm ?? 0);
 }
 
-/**
- * Renders the given order's GST invoice as a receipt-shaped PDF sized for
- * `invoiceSettings.paperWidth` (58mm/80mm thermal roll). Height is computed
- * from the actual content — not a fixed A4-like page — since item-name
- * wrapping and line counts differ between the two widths. Async because the
- * logo (if any) has to be fetched and decoded before the page height (which
- * depends on the logo's rendered size) can even be computed.
- */
-export async function buildThermalBillPdf(input: ThermalBillInput): Promise<Blob> {
-  const widthMm = input.invoiceSettings.paperWidth === '58mm' ? 58 : 80;
-  const contentWidthMm = widthMm - 2 * MARGIN_MM;
-  const logo = input.logoBlob ? await decodeLogo(input.logoBlob) : null;
+function contentHeightMm(blocks: Block[]): number {
+  return blocks.reduce((sum, block) => sum + blockHeightMm(block), 0);
+}
 
-  // First pass against a throwaway doc of the real width, purely to measure
-  // wrapped line counts — jsPDF can't report those without a page to wrap against.
-  const measure = new jsPDF({ unit: 'mm', format: [widthMm, 297] });
-  measure.setFontSize(FONT_SIZE_PT);
-  const blocks = buildBlocks(measure, contentWidthMm, input, logo);
-  const contentHeightMm = blocks.reduce((sum, block) => sum + blockHeightMm(block), 0);
-  const heightMm = MARGIN_MM * 2 + contentHeightMm;
-
-  const doc = new jsPDF({ unit: 'mm', format: [widthMm, heightMm] });
-  doc.setFontSize(FONT_SIZE_PT);
+/** Draws `blocks` onto `doc`'s current (already-sized) page, top to bottom from `MARGIN_MM` — shared by the customer bill's page and the KOT slip's own page, so both read from the exact same block-drawing rules (rule dashes, row columns, text alignment/gaps). */
+function renderBlocksOnPage(
+  doc: jsPDF,
+  blocks: Block[],
+  widthMm: number,
+  fontSizePt: number,
+  rowFontSizePt: number,
+  titleFontSizePt: number,
+): void {
+  doc.setFontSize(fontSizePt);
   let y = MARGIN_MM;
 
   for (const block of blocks) {
     if (block.kind === 'image') {
-      const x = (widthMm - block.logo.widthMm) / 2;
-      doc.addImage(block.logo.dataUrl, block.logo.format, x, y, block.logo.widthMm, block.logo.heightMm);
-      y += block.logo.heightMm + LOGO_BOTTOM_GAP_MM;
+      const x = (widthMm - block.widthMm) / 2;
+      doc.addImage(block.logo.dataUrl, block.logo.format, x, y, block.widthMm, block.heightMm);
+      y += block.heightMm + LOGO_BOTTOM_GAP_MM;
       continue;
     }
     if (block.kind === 'rule') {
@@ -347,7 +534,7 @@ export async function buildThermalBillPdf(input: ThermalBillInput): Promise<Blob
       continue;
     }
     if (block.kind === 'row') {
-      doc.setFontSize(ROW_FONT_SIZE_PT);
+      doc.setFontSize(rowFontSizePt);
       doc.setFont('helvetica', block.bold ? 'bold' : 'normal');
       let x = MARGIN_MM;
       block.cells.forEach((cell, index) => {
@@ -359,22 +546,79 @@ export async function buildThermalBillPdf(input: ThermalBillInput): Promise<Blob
         doc.text(cell, textX, y, { align });
         x += width;
       });
-      doc.setFontSize(FONT_SIZE_PT);
+      doc.setFontSize(fontSizePt);
       doc.setFont('helvetica', 'normal');
       y += LINE_HEIGHT_MM;
       continue;
     }
     y += block.gapBeforeMm ?? 0;
-    doc.setFontSize(block.bold && block.lines.length === 1 ? FONT_SIZE_TITLE_PT : FONT_SIZE_PT);
+    doc.setFontSize(block.bold && block.lines.length === 1 ? titleFontSizePt : fontSizePt);
     doc.setFont('helvetica', block.bold ? 'bold' : 'normal');
     for (const line of block.lines) {
       const align = block.align ?? 'left';
-      const x = align === 'center' ? widthMm / 2 : align === 'right' ? widthMm - MARGIN_MM : MARGIN_MM;
+      const x =
+        align === 'center' ? widthMm / 2 : align === 'right' ? widthMm - MARGIN_MM : MARGIN_MM;
       doc.text(line, x, y, { align });
       y += LINE_HEIGHT_MM;
     }
-    doc.setFontSize(FONT_SIZE_PT);
+    doc.setFontSize(fontSizePt);
     doc.setFont('helvetica', 'normal');
+  }
+}
+
+/**
+ * Renders the given order's GST invoice as a receipt-shaped PDF sized for
+ * `invoiceSettings.paperWidth` (58mm/80mm thermal roll). Height is computed
+ * from the actual content — not a fixed A4-like page — since item-name
+ * wrapping and line counts differ between the two widths. Async because the
+ * logo (if any) has to be fetched and decoded before the page height (which
+ * depends on the logo's rendered size) can even be computed.
+ *
+ * Every font size is derived from `config.font_size_pt` (the layout's own
+ * base size, same setting the A4 builder exposes) rather than a fixed
+ * constant — body/meta/notes text renders at exactly that size, matching
+ * `tableRenderer.ts`'s own "literal, not scaled" policy so the whole receipt
+ * reads as one consistent size, not a mismatched patchwork. The item table
+ * stays 1pt smaller (a real column-width constraint: up to 5 columns must
+ * fit a 58mm roll's ~50mm content width) and the bold Total line 2pt larger
+ * (a receipt convention, matches the A4 title's own "one deliberate
+ * exception" treatment) — both still scale together with the base setting,
+ * they just keep their own relative offset from it.
+ */
+export async function buildThermalBillPdf(input: ThermalBillInput): Promise<Blob> {
+  const widthMm = input.invoiceSettings.paperWidth === '58mm' ? 58 : 80;
+  const contentWidthMm = widthMm - 2 * MARGIN_MM;
+  const logo = input.logoBlob ? await decodeLogo(input.logoBlob) : null;
+
+  const fontSizePt = input.config.font_size_pt;
+  const rowFontSizePt = fontSizePt - 1;
+  const titleFontSizePt = fontSizePt + 2;
+
+  // First pass against a throwaway doc of the real width, purely to measure
+  // wrapped line counts — jsPDF can't report those without a page to wrap against.
+  const measure = new jsPDF({ unit: 'mm', format: [widthMm, 297] });
+  measure.setFontSize(fontSizePt);
+  const blocks = buildBlocks(measure, contentWidthMm, input, logo);
+  const heightMm = MARGIN_MM * 2 + contentHeightMm(blocks);
+
+  const doc = new jsPDF({
+    unit: 'mm',
+    format: [widthMm, heightMm],
+    orientation: orientationFor(widthMm, heightMm),
+  });
+  renderBlocksOnPage(doc, blocks, widthMm, fontSizePt, rowFontSizePt, titleFontSizePt);
+
+  // Second tear-off in the same print job — a business with `kotReceiptEnabled`
+  // wants the kitchen ticket printed right after the customer bill, not as a
+  // separate manual print action. Sized to its OWN content, same as the bill
+  // page — it always carries less than the bill (same items, no totals/tax/
+  // business-details/notes), so matching the bill's height instead would
+  // print several extra centimeters of blank paper on every single order.
+  if (input.includeKotSlip) {
+    const kotBlocks = buildKotBlocks(measure, contentWidthMm, input);
+    const kotHeightMm = MARGIN_MM * 2 + contentHeightMm(kotBlocks);
+    doc.addPage([widthMm, kotHeightMm], orientationFor(widthMm, kotHeightMm));
+    renderBlocksOnPage(doc, kotBlocks, widthMm, fontSizePt, rowFontSizePt, titleFontSizePt);
   }
 
   return doc.output('blob');

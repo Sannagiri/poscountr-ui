@@ -1,19 +1,40 @@
 import type { ChangeEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { AlertCircle, Check, ChefHat, Hash, LayoutGrid, Loader2, UserCheck } from 'lucide-react';
+import {
+  AlertCircle,
+  Check,
+  ChefHat,
+  FileClock,
+  Hash,
+  LayoutGrid,
+  Loader2,
+  UserCheck,
+} from 'lucide-react';
 
 import { Card, CardHeader, Input, PageHeader, Select, Switch, useToast } from '@/components';
 import { cn } from '@/utils/cn';
 import { describeApiError } from '@/utils/errors';
 
-import { isDineInEntityType, useBusinesses } from '@/modules/businesses';
+import {
+  isDineInEntityType,
+  isQuotationEligibleEntityType,
+  useBusinesses,
+} from '@/modules/businesses';
+import { DefaultLayoutSelector } from '@/modules/documentLayouts';
 
 import { ORDER_RESET_PERIOD_OPTIONS, SETTINGS_QUERY_KEYS } from '../constants/settings.constants';
 import { useOrderSettings } from '../hooks/useOrderSettings';
+import { useQuotationSettings } from '../hooks/useQuotationSettings';
 import { settingsService } from '../services/settingsService';
-import type { OrderSettingsFormValues } from '../validations/settings.validation';
-import { orderSettingsFormSchema } from '../validations/settings.validation';
+import type {
+  OrderSettingsFormValues,
+  QuotationSettingsFormValues,
+} from '../validations/settings.validation';
+import {
+  orderSettingsFormSchema,
+  quotationSettingsFormSchema,
+} from '../validations/settings.validation';
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -25,7 +46,15 @@ const EMPTY_ORDER_VALUES: OrderSettingsFormValues = {
   customerNameRequired: true,
   customerPhoneRequired: true,
   kitchenEnabled: true,
+  kotReceiptEnabled: false,
   tableLayoutEnabled: false,
+};
+
+const EMPTY_QUOTATION_VALUES: QuotationSettingsFormValues = {
+  resetPeriod: 'daily',
+  numberingPrefix: '',
+  numberingStart: '0001',
+  expirationDays: '7',
 };
 
 /** How long to let typing/toggling settle before autosaving a field change. */
@@ -90,6 +119,7 @@ export function OrderSettingsPage() {
       customerNameRequired: orderSettingsQuery.data.customerNameRequired,
       customerPhoneRequired: orderSettingsQuery.data.customerPhoneRequired,
       kitchenEnabled: orderSettingsQuery.data.kitchenEnabled,
+      kotReceiptEnabled: orderSettingsQuery.data.kotReceiptEnabled,
       tableLayoutEnabled: orderSettingsQuery.data.tableLayoutEnabled,
     };
     resetForm(values);
@@ -143,11 +173,118 @@ export function OrderSettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBusinessId, orderSettingsQuery.data, watch, trigger, getValues]);
 
+  // Quotation settings are a *different* backing model (`QuotationSettings`,
+  // not `OrderSettings`) — its own `useForm` + its own autosave `useEffect`,
+  // not merged into the order-settings form above, even though both cards
+  // live on this one page and share the same debounce/save-status-indicator
+  // pattern.
+  const selectedBusinessForQuotation = businessesQuery.data?.find(
+    (business) => business.id === selectedBusinessId,
+  );
+  const showQuotationSetting = isQuotationEligibleEntityType(
+    selectedBusinessForQuotation?.entityType,
+  );
+  const quotationSettingsQuery = useQuotationSettings(
+    showQuotationSetting ? selectedBusinessId : undefined,
+  );
+
+  const {
+    control: quotationControl,
+    register: registerQuotation,
+    watch: watchQuotation,
+    trigger: triggerQuotation,
+    getValues: getQuotationValues,
+    reset: resetQuotationForm,
+    formState: { errors: quotationErrors },
+  } = useForm<QuotationSettingsFormValues>({
+    resolver: zodResolver(quotationSettingsFormSchema),
+    defaultValues: EMPTY_QUOTATION_VALUES,
+  });
+
+  const lastSavedQuotationRef = useRef<string>(JSON.stringify(EMPTY_QUOTATION_VALUES));
+  const [quotationSaveStatus, setQuotationSaveStatus] = useState<SaveStatus>('idle');
+  const [quotationSaveErrorMessage, setQuotationSaveErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!quotationSettingsQuery.data) return;
+    const values: QuotationSettingsFormValues = {
+      resetPeriod: quotationSettingsQuery.data.resetPeriod,
+      numberingPrefix: quotationSettingsQuery.data.numberingPrefix,
+      numberingStart: quotationSettingsQuery.data.numberingStart,
+      expirationDays: String(quotationSettingsQuery.data.expirationDays),
+    };
+    resetQuotationForm(values);
+    lastSavedQuotationRef.current = JSON.stringify(values);
+    setQuotationSaveStatus('idle');
+    setQuotationSaveErrorMessage(null);
+  }, [quotationSettingsQuery.data, resetQuotationForm]);
+
+  const updateQuotationMutation = useMutation({
+    mutationFn: (values: QuotationSettingsFormValues) => {
+      if (!selectedBusinessId) return Promise.reject(new Error('No business selected'));
+      return settingsService.updateQuotationSettings(selectedBusinessId, {
+        resetPeriod: values.resetPeriod,
+        numberingPrefix: values.numberingPrefix,
+        numberingStart: values.numberingStart,
+        expirationDays: Number(values.expirationDays),
+      });
+    },
+    onSuccess: (data, values) => {
+      queryClient.setQueryData(
+        SETTINGS_QUERY_KEYS.quotationSettings(selectedBusinessId ?? ''),
+        data,
+      );
+      lastSavedQuotationRef.current = JSON.stringify(values);
+      setQuotationSaveStatus('saved');
+      setQuotationSaveErrorMessage(null);
+      showToast({ tone: 'success', message: 'Quotation settings saved.' });
+    },
+    onError: (error) => {
+      const message = describeApiError(error);
+      setQuotationSaveStatus('error');
+      setQuotationSaveErrorMessage(message);
+      showToast({ tone: 'danger', message });
+    },
+  });
+
+  useEffect(() => {
+    if (!selectedBusinessId || !showQuotationSetting || !quotationSettingsQuery.data) return;
+    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const subscription = watchQuotation(() => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(async () => {
+        const isValid = await triggerQuotation();
+        if (!isValid) return;
+        const values = getQuotationValues();
+        const serialized = JSON.stringify(values);
+        if (serialized === lastSavedQuotationRef.current) return;
+        setQuotationSaveStatus('saving');
+        updateQuotationMutation.mutate(values);
+      }, AUTOSAVE_DEBOUNCE_MS);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    selectedBusinessId,
+    showQuotationSetting,
+    quotationSettingsQuery.data,
+    watchQuotation,
+    triggerQuotation,
+    getQuotationValues,
+  ]);
+
   const businessOptions = (businessesQuery.data ?? []).map((business) => ({
     value: business.id,
     label: business.name,
   }));
-  const selectedBusiness = businessesQuery.data?.find((business) => business.id === selectedBusinessId);
+  const selectedBusiness = businessesQuery.data?.find(
+    (business) => business.id === selectedBusinessId,
+  );
   // Shown for a dine-in business type, or — even for a non-dine-in one —
   // if it's already on (set before this gate existed, or the business
   // type changed since) so there's still a way to switch it back off
@@ -237,6 +374,78 @@ export function OrderSettingsPage() {
             </div>
           </Card>
 
+          {showQuotationSetting && quotationSettingsQuery.data ? (
+            <>
+              <Card>
+                <CardHeader
+                  icon={FileClock}
+                  title="Quotation settings"
+                  subtitle="Numbering and expiry window for quotations raised on this business"
+                  action={
+                    <SaveStatusIndicator
+                      status={quotationSaveStatus}
+                      errorMessage={quotationSaveErrorMessage}
+                    />
+                  }
+                />
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+                  <Controller
+                    name="resetPeriod"
+                    control={quotationControl}
+                    render={({ field }) => (
+                      <Select
+                        label="Resets"
+                        options={ORDER_RESET_PERIOD_OPTIONS}
+                        value={field.value}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                  <Input
+                    label="Numbering prefix (optional)"
+                    placeholder="QUO"
+                    {...registerQuotation('numberingPrefix')}
+                    errorMessage={quotationErrors.numberingPrefix?.message}
+                  />
+                  <Input
+                    label="Starting number"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="0001"
+                    hint="Leading zeros set the padding width"
+                    {...registerQuotation('numberingStart', {
+                      onChange: (event: ChangeEvent<HTMLInputElement>) => {
+                        event.target.value = event.target.value.replace(/\D/g, '').slice(0, 10);
+                      },
+                    })}
+                    errorMessage={quotationErrors.numberingStart?.message}
+                  />
+                  <Input
+                    label="Expires after (days)"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="7"
+                    hint="0 = never expires"
+                    {...registerQuotation('expirationDays', {
+                      onChange: (event: ChangeEvent<HTMLInputElement>) => {
+                        event.target.value = event.target.value.replace(/\D/g, '').slice(0, 5);
+                      },
+                    })}
+                    errorMessage={quotationErrors.expirationDays?.message}
+                  />
+                </div>
+              </Card>
+
+              <DefaultLayoutSelector
+                businessId={selectedBusinessId}
+                documentType="quotation"
+                documentLabel="quotations"
+              />
+            </>
+          ) : null}
+
           <Card>
             <CardHeader
               icon={UserCheck}
@@ -317,15 +526,39 @@ export function OrderSettingsPage() {
                       This business runs a kitchen
                     </span>
                     <span className="mt-0.5 block text-xs text-ink-faint">
-                      When on, New Order shows the table number field and orders go through
-                      KOT → preparing → ready → delivered before completion. When off, orders
-                      go straight to payment.
+                      When on, New Order shows the table number field and orders go through KOT →
+                      preparing → ready → delivered before completion. When off, orders go straight
+                      to payment.
                     </span>
                   </span>
                   <Switch
                     checked={field.value}
                     onCheckedChange={field.onChange}
                     label="This business runs a kitchen"
+                  />
+                </div>
+              )}
+            />
+            <Controller
+              control={control}
+              name="kotReceiptEnabled"
+              render={({ field }) => (
+                <div className="mt-3 flex items-start justify-between gap-4 rounded-control border border-border bg-surface/60 p-3.5">
+                  <span>
+                    <span className="block text-sm font-semibold text-ink">
+                      Print a KOT receipt
+                    </span>
+                    <span className="mt-0.5 block text-xs text-ink-faint">
+                      When on, printing a thermal bill also prints a second kitchen ticket
+                      (order/token number, items, and quantities only — no prices) for the kitchen
+                      to work off manually. Independent of the kitchen toggle above — useful even
+                      without a digital KDS board. Thermal receipts only.
+                    </span>
+                  </span>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    label="Print a KOT receipt"
                   />
                 </div>
               )}
@@ -349,10 +582,10 @@ export function OrderSettingsPage() {
                         Pick a table before picking items
                       </span>
                       <span className="mt-0.5 block text-xs text-ink-faint">
-                        When on, New order opens the location&apos;s floor plan first — tap a
-                        table to start (or reopen its bill if it&apos;s already occupied).
-                        Design each location&apos;s layout from Locations → Edit layout. When off,
-                        New order works exactly as it does today.
+                        When on, New order opens the location&apos;s floor plan first — tap a table
+                        to start (or reopen its bill if it&apos;s already occupied). Design each
+                        location&apos;s layout from Locations → Edit layout. When off, New order
+                        works exactly as it does today.
                       </span>
                     </span>
                     <Switch

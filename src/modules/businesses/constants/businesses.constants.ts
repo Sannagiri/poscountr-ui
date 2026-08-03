@@ -29,6 +29,19 @@ export function isDineInEntityType(entityType: EntityType | undefined): boolean 
 }
 
 /**
+ * Mirrors the backend's `apps/quotations/constants.py::can_quote` — the
+ * inverse of `isDineInEntityType`: every entity type except the kitchen-flow
+ * ones (restaurant/cafe) may raise quotations. Deliberately a deny-list, not
+ * an allow-list like `isPurchasingEntityType` below — a new non-food entity
+ * type added later is eligible with no change needed here. Used to gate the
+ * Quotations nav entry and the "Quotation settings" card on the Orders
+ * settings page.
+ */
+export function isQuotationEligibleEntityType(entityType: EntityType | undefined): boolean {
+  return entityType !== undefined && !isDineInEntityType(entityType);
+}
+
+/**
  * Mirrors the backend's purchasing-domain gate (`apps/purchasing/`'s own
  * entity-type check) — buy-side purchase orders/suppliers only exist for a
  * stock-holding business; a restaurant/cafe never orders stock in this

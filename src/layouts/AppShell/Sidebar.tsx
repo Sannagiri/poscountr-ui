@@ -5,10 +5,14 @@ import { ChevronDown, ShieldCheck } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 import type { UserRole } from '@/modules/auth';
-import { isPurchasingEntityType, useBusinesses } from '@/modules/businesses';
+import {
+  isPurchasingEntityType,
+  isQuotationEligibleEntityType,
+  useBusinesses,
+} from '@/modules/businesses';
 
 import type { NavItem } from './navConfig';
-import { filterByPurchasingGate, navGroupsForRole } from './navConfig';
+import { filterByPurchasingGate, filterByQuotationGate, navGroupsForRole } from './navConfig';
 
 export interface SidebarProps {
   role: UserRole;
@@ -47,8 +51,17 @@ export function Sidebar({ role, variant = 'desktop' }: SidebarProps) {
     role !== 'tenant_admin' || !businessesQuery.data
       ? true
       : businessesQuery.data.some((business) => isPurchasingEntityType(business.entityType));
+  // Same lenient fallback, same reasoning, just the deny-list check
+  // (`isQuotationEligibleEntityType`) instead of purchasing's allow-list.
+  const hasQuotationBusiness =
+    role !== 'tenant_admin' || !businessesQuery.data
+      ? true
+      : businessesQuery.data.some((business) => isQuotationEligibleEntityType(business.entityType));
 
-  const groups = filterByPurchasingGate(navGroupsForRole(role), hasPurchasingBusiness);
+  const groups = filterByQuotationGate(
+    filterByPurchasingGate(navGroupsForRole(role), hasPurchasingBusiness),
+    hasQuotationBusiness,
+  );
 
   return (
     <aside
@@ -91,6 +104,9 @@ export function Sidebar({ role, variant = 'desktop' }: SidebarProps) {
           </div>
         ))}
       </nav>
+      <p className="mt-2 shrink-0 border-t border-border pt-4 text-center text-[11px] text-ink-faint">
+        © {new Date().getFullYear()} Aarvin Ventures
+      </p>
     </aside>
   );
 }

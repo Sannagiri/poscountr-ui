@@ -297,14 +297,15 @@ export function ProductFormModal({
   const isEditing = Boolean(editingProduct);
 
   // `useLocations` is `IsTenantAdmin`-gated server-side (same restriction
-  // `ReportsPage`'s Store Performance chart already has) — "Manage
+  // `SalesReportsPage`'s Store Performance chart already has) — "Manage
   // locations" is tenant_admin-only for the same reason. Only worth
   // surfacing when the product's business actually has more than one
   // active location; a single-location business gets zero UX change.
   const locationsQuery = useLocations({ enabled: isTenantAdmin });
   const businessLocationsCount = editingProduct
-    ? (locationsQuery.data ?? []).filter((location) => location.businessId === editingProduct.businessId)
-        .length
+    ? (locationsQuery.data ?? []).filter(
+        (location) => location.businessId === editingProduct.businessId,
+      ).length
     : 0;
   const showLocationsButton = isEditing && isTenantAdmin && businessLocationsCount > 1;
 
@@ -334,7 +335,9 @@ export function ProductFormModal({
       setPendingImageFile(null);
       const initialCategory = target && target !== 'create' ? target.category : '';
       setCategoryMode(
-        initialCategory && !(categoriesQuery.data ?? []).includes(initialCategory) ? 'new' : 'select',
+        initialCategory && !(categoriesQuery.data ?? []).includes(initialCategory)
+          ? 'new'
+          : 'select',
       );
       reset(defaultValuesFor(target && target !== 'create' ? target : undefined));
     }
@@ -415,7 +418,8 @@ export function ProductFormModal({
   // pharmacy); shown when unknown too (a manager creating), same lenient
   // fallback as before — the backend silently ignores it either way.
   const showOpeningStock =
-    !isEditing && (!resolvedFlags || (resolvedFlags.isStockTracked && !resolvedFlags.isBatchTracked));
+    !isEditing &&
+    (!resolvedFlags || (resolvedFlags.isStockTracked && !resolvedFlags.isBatchTracked));
 
   // Stock/Batches open as their own `Modal` (their own Dialog, own
   // header/footer, own internal sub-views) rather than as another section
@@ -440,6 +444,15 @@ export function ProductFormModal({
       hint="Unique per business — also the Excel import upsert key"
       {...register('sku')}
       errorMessage={errors.sku?.message}
+    />
+  );
+
+  const barcodeField = (
+    <Input
+      label="Barcode"
+      hint="Optional — auto-generated the first time you print a label if left blank"
+      {...register('barcode')}
+      errorMessage={errors.barcode?.message}
     />
   );
 
@@ -523,7 +536,10 @@ export function ProductFormModal({
                 onClear={() => setPendingImageFile(null)}
               />
             )}
-            <div className="min-w-0 flex-1">{skuField}</div>
+            <div className="grid min-w-0 flex-1 grid-cols-1 gap-4 sm:grid-cols-2">
+              {skuField}
+              {barcodeField}
+            </div>
           </div>
 
           <Input label="Name" {...register('name')} errorMessage={errors.name?.message} />
@@ -535,7 +551,10 @@ export function ProductFormModal({
               render={({ field }) => (
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
-                    <label htmlFor="product-category" className="text-xs font-semibold text-ink-soft">
+                    <label
+                      htmlFor="product-category"
+                      className="text-xs font-semibold text-ink-soft"
+                    >
                       Category
                     </label>
                     {categoryMode === 'new' ? (

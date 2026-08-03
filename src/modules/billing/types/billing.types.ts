@@ -36,6 +36,10 @@ export interface OrderItem {
   /** This line's own discount (0-100), set when the line was added — `'0.00'` when none. Already netted into `lineTotal`. */
   discountPercent: string;
   lineTotal: string;
+  /** Live from `Product.unit` — not snapshotted, formatting-only (e.g. `'pcs'`, `'kg'`). */
+  unit: string;
+  /** Live from `Product.hsn_code` — not snapshotted; `''` when the product has none set. */
+  hsnCode: string;
 }
 
 /**
@@ -63,6 +67,8 @@ export interface Order {
   discountPercent: string;
   /** Derived money value of `discountPercent` alone (per-line discounts are already netted into each line's `lineTotal`, never surfaced as a separate amount here). */
   discountAmount: string;
+  /** Free-hand per-order choice, set at creation — `false` means every line's `gstRate` is treated as 0 for this order (`taxTotal` is `'0.00'`, `subtotal` == `total`), regardless of the products' own catalog GST rate. Editable up to the same point items are (before prep starts); locked once completed. */
+  applyGst: boolean;
   /** Per-business gap-less order number; `null` for orders created before this field existed. */
   orderNumber: string | null;
   /** Mirrors the business's `OrderSettings.kitchen_enabled` at read time — drives which transitions are legal next. */
@@ -129,6 +135,36 @@ export interface OrderCreateRequest {
   customerState?: string;
   /** Whole-order discount (0-100, optional) — layered on top of each line's own discount. */
   discountPercent?: string;
+  /** Free-hand per-order choice (default `true`) — `false` charges no GST on this order regardless of the products' own GST rate. */
+  applyGst?: boolean;
+}
+
+/**
+ * `POST /tenant/orders/offline-sync/` body — sync one register-offline cash
+ * sale: create + items + complete in one atomic, idempotent call. Unlike
+ * `OrderCreateRequest`, `idempotencyKey`/`items`/`paymentMethod` are all
+ * required (there's no PENDING window to add them later), and `tableId`
+ * isn't supported — offline sales skip the floor-plan/kitchen flow
+ * entirely (see `apps/billing/services/order_service.py`'s
+ * `create_offline_sale`).
+ */
+export interface OfflineOrderSyncRequest {
+  businessId?: string;
+  locationId?: string;
+  orderType?: OrderType;
+  tableNumber?: string;
+  note?: string;
+  /** The client's local order id — the only thing that makes a retried sync call safe. */
+  idempotencyKey: string;
+  items: OrderLineRequest[];
+  customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  customerGstin?: string;
+  customerState?: string;
+  discountPercent?: string;
+  applyGst?: boolean;
+  paymentMethod: PaymentMethod;
 }
 
 /**

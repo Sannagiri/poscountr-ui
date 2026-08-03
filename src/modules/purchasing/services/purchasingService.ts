@@ -88,6 +88,7 @@ interface PurchaseOrderItemRaw {
   mfg_date: string | null;
   expiry_date: string | null;
   mrp: string | null;
+  unit: string;
 }
 
 function mapPurchaseOrderItem(raw: PurchaseOrderItemRaw): PurchaseOrderItem {
@@ -104,6 +105,7 @@ function mapPurchaseOrderItem(raw: PurchaseOrderItemRaw): PurchaseOrderItem {
     mfgDate: raw.mfg_date,
     expiryDate: raw.expiry_date,
     mrp: raw.mrp,
+    unit: raw.unit,
   };
 }
 
@@ -243,7 +245,9 @@ function purchaseOrderCompleteRequestToBody(request: PurchaseOrderCompleteReques
 }
 
 export const purchasingService = {
-  async listSuppliers(filters: { businessId?: string; isActive?: string } = {}): Promise<Supplier[]> {
+  async listSuppliers(
+    filters: { businessId?: string; isActive?: string } = {},
+  ): Promise<Supplier[]> {
     const body = await unwrap<SupplierRaw[]>(
       apiClient.get('/tenant/suppliers/', {
         params: { business_id: filters.businessId, is_active: filters.isActive },

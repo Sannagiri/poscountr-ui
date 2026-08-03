@@ -6,6 +6,8 @@ export interface SwitchProps {
   label?: string;
   disabled?: boolean;
   className?: string;
+  /** `sm` is a compact variant for dense rows (e.g. the layout builder's per-zone enable toggles) where the default size reads as too heavy. Defaults to `md`, the original/only size. */
+  size?: 'sm' | 'md';
 }
 
 /**
@@ -18,7 +20,15 @@ export interface SwitchProps {
  * dependency, unlike `Checkbox`'s indeterminate state which does benefit
  * from Radix's handling.
  */
-export function Switch({ checked, onCheckedChange, label, disabled, className }: SwitchProps) {
+export function Switch({
+  checked,
+  onCheckedChange,
+  label,
+  disabled,
+  className,
+  size = 'md',
+}: SwitchProps) {
+  const isSmall = size === 'sm';
   return (
     <button
       type="button"
@@ -28,7 +38,8 @@ export function Switch({ checked, onCheckedChange, label, disabled, className }:
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
-        'relative h-6 w-11 shrink-0 rounded-full border border-border-strong bg-border transition-colors',
+        'relative shrink-0 rounded-full border border-border-strong bg-border transition-colors',
+        isSmall ? 'h-4 w-7' : 'h-6 w-11',
         'hover:brightness-95',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
         checked && 'border-brand bg-brand',
@@ -39,8 +50,9 @@ export function Switch({ checked, onCheckedChange, label, disabled, className }:
       <span
         aria-hidden="true"
         className={cn(
-          'block h-4 w-4 translate-x-1 rounded-full bg-white shadow-sm transition-transform',
-          checked && 'translate-x-[22px]',
+          'block rounded-full bg-white shadow-sm transition-transform',
+          isSmall ? 'h-2.5 w-2.5 translate-x-[3px]' : 'h-4 w-4 translate-x-1',
+          checked && (isSmall ? 'translate-x-[15px]' : 'translate-x-[22px]'),
         )}
       />
     </button>

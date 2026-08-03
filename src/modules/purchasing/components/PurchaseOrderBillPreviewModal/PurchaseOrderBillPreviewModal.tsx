@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Download, Printer } from 'lucide-react';
 
-import { Button, Loader, Modal } from '@/components';
+import { Button, Loader, Modal, Select } from '@/components';
 import { describeApiError } from '@/utils/errors';
+
+import { useLayoutSwitcher } from '@/modules/documentLayouts';
 
 import { purchaseOrderPdfFilename, usePurchaseOrderBill } from '../../hooks/usePurchaseOrderBill';
 import type { PurchaseOrder } from '../../types/purchasing.types';
@@ -32,11 +34,24 @@ interface ReadyState {
  * from here instead, since a PO document has no single "just completed"
  * moment to hang that call off of.
  */
-export function PurchaseOrderBillPreviewModal({ purchaseOrder, onClose }: PurchaseOrderBillPreviewModalProps) {
+export function PurchaseOrderBillPreviewModal({
+  purchaseOrder,
+  onClose,
+}: PurchaseOrderBillPreviewModalProps) {
   const { previewBill, ensurePdfUploaded } = usePurchaseOrderBill();
   const [state, setState] = useState<ReadyState | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  // A PO document is always the formal A4 template — no thermal-receipt
+  // branch to gate on, the switcher is always relevant here.
+  const switcher = useLayoutSwitcher(
+    {
+      businessId: purchaseOrder?.businessId,
+      documentType: purchaseOrder ? 'purchase_order' : undefined,
+    },
+    purchaseOrder?.id,
+  );
 
   useEffect(() => {
     if (!purchaseOrder) {
@@ -44,10 +59,15 @@ export function PurchaseOrderBillPreviewModal({ purchaseOrder, onClose }: Purcha
       setErrorMessage(null);
       return;
     }
+    // Wait for a just-picked alternative's full config before regenerating
+    // — otherwise the preview would flash back to the effective default for
+    // one render while `useLayoutTemplate` is still in flight.
+    if (switcher.isPending) return;
+
     let cancelled = false;
     let objectUrl: string | null = null;
 
-    previewBill(purchaseOrder)
+    previewBill(purchaseOrder, switcher.layoutConfig)
       .then(({ blob }) => {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
@@ -55,6 +75,9 @@ export function PurchaseOrderBillPreviewModal({ purchaseOrder, onClose }: Purcha
         // Doesn't affect this preview either way (already built and shown
         // above from the fresh blob) — just makes sure a copy lands in S3
         // for later reprints, same as `OrderDetailPage`'s equivalent call.
+        // Never receives `layoutOverride` — persistence always uses the
+        // effective layout, regardless of what the switcher is currently
+        // previewing (see `layoutOverride`'s own doc comment).
         ensurePdfUploaded(purchaseOrder).catch(() => {
           /* best-effort — a failed background upload isn't worth interrupting the preview over */
         });
@@ -68,7 +91,7 @@ export function PurchaseOrderBillPreviewModal({ purchaseOrder, onClose }: Purcha
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [purchaseOrder, previewBill, ensurePdfUploaded]);
+  }, [purchaseOrder, previewBill, ensurePdfUploaded, switcher.layoutConfig, switcher.isPending]);
 
   function handleDownload() {
     if (!state) return;
@@ -99,7 +122,9 @@ export function PurchaseOrderBillPreviewModal({ purchaseOrder, onClose }: Purcha
       }}
       title="Purchase order preview"
       description={
-        purchaseOrder ? `${purchaseOrder.purchaseNumber ?? 'Purchase order'} · ${purchaseOrder.supplierName}` : undefined
+        purchaseOrder
+          ? `${purchaseOrder.purchaseNumber ?? 'Purchase order'} · ${purchaseOrder.supplierName}`
+          : undefined
       }
       size="lg"
       footer={
@@ -121,6 +146,17 @@ export function PurchaseOrderBillPreviewModal({ purchaseOrder, onClose }: Purcha
         </>
       }
     >
+      {switcher.options && switcher.options.length > 0 ? (
+        <div className="mb-3 flex items-center justify-end gap-2">
+          <span className="text-xs font-semibold text-ink-soft">Layout</span>
+          <Select
+            className="h-9 w-56"
+            options={switcher.options}
+            value={switcher.value}
+            onChange={switcher.onChange}
+          />
+        </div>
+      ) : null}
       {errorMessage ? (
         <p className="text-sm text-danger">{errorMessage}</p>
       ) : state ? (

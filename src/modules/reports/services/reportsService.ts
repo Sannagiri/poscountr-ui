@@ -70,6 +70,7 @@ export interface InvoiceRaw {
   total: string;
   pdf_url: string;
   pdf_uploaded_at: string | null;
+  layout_template_id: string | null;
   hsn_summary: InvoiceHsnLineRaw[];
 }
 
@@ -106,6 +107,7 @@ export function mapInvoice(raw: InvoiceRaw): Invoice {
     total: raw.total,
     pdfUrl: raw.pdf_url,
     pdfUploadedAt: raw.pdf_uploaded_at,
+    layoutTemplateId: raw.layout_template_id,
     hsnSummary: raw.hsn_summary.map(mapHsnLine),
   };
 }
@@ -232,7 +234,9 @@ function mapStorePerformanceRow(raw: StorePerformanceRowRaw): StorePerformanceRo
   };
 }
 
-function mapRepresentativeTransaction(raw: RepresentativeTransactionRaw): RepresentativeTransaction {
+function mapRepresentativeTransaction(
+  raw: RepresentativeTransactionRaw,
+): RepresentativeTransaction {
   return {
     id: raw.id,
     orderNumber: raw.order_number,

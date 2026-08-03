@@ -10,6 +10,8 @@ import type {
   OrderSettingsRequest,
   PurchaseSettings,
   PurchaseSettingsRequest,
+  QuotationSettings,
+  QuotationSettingsRequest,
   ResourceKey,
 } from '../types/settings.types';
 
@@ -89,6 +91,7 @@ interface OrderSettingsRaw {
   customer_name_required: boolean;
   customer_phone_required: boolean;
   kitchen_enabled: boolean;
+  kot_receipt_enabled: boolean;
   table_layout_enabled: boolean;
 }
 
@@ -102,6 +105,7 @@ function mapOrderSettings(raw: OrderSettingsRaw): OrderSettings {
     customerNameRequired: raw.customer_name_required,
     customerPhoneRequired: raw.customer_phone_required,
     kitchenEnabled: raw.kitchen_enabled,
+    kotReceiptEnabled: raw.kot_receipt_enabled,
     tableLayoutEnabled: raw.table_layout_enabled,
   };
 }
@@ -114,6 +118,7 @@ function orderSettingsRequestToBody(request: OrderSettingsRequest) {
     customer_name_required: request.customerNameRequired,
     customer_phone_required: request.customerPhoneRequired,
     kitchen_enabled: request.kitchenEnabled,
+    kot_receipt_enabled: request.kotReceiptEnabled,
     table_layout_enabled: request.tableLayoutEnabled,
   };
 }
@@ -141,6 +146,35 @@ function purchaseSettingsRequestToBody(request: PurchaseSettingsRequest) {
     reset_period: request.resetPeriod,
     numbering_prefix: request.numberingPrefix,
     numbering_start: request.numberingStart,
+  };
+}
+
+interface QuotationSettingsRaw {
+  id: string;
+  business_id: string;
+  reset_period: QuotationSettings['resetPeriod'];
+  numbering_prefix: string;
+  numbering_start: string;
+  expiration_days: number;
+}
+
+function mapQuotationSettings(raw: QuotationSettingsRaw): QuotationSettings {
+  return {
+    id: raw.id,
+    businessId: raw.business_id,
+    resetPeriod: raw.reset_period,
+    numberingPrefix: raw.numbering_prefix,
+    numberingStart: raw.numbering_start,
+    expirationDays: raw.expiration_days,
+  };
+}
+
+function quotationSettingsRequestToBody(request: QuotationSettingsRequest) {
+  return {
+    reset_period: request.resetPeriod,
+    numbering_prefix: request.numberingPrefix,
+    numbering_start: request.numberingStart,
+    expiration_days: request.expirationDays,
   };
 }
 
@@ -197,9 +231,12 @@ export const settingsService = {
    * which never needed CORS to begin with.
    */
   async getInvoiceLogoBlob(businessId: string): Promise<Blob> {
-    const response = await apiClient.get(`/tenant/businesses/${businessId}/invoice-settings/logo/file/`, {
-      responseType: 'blob',
-    });
+    const response = await apiClient.get(
+      `/tenant/businesses/${businessId}/invoice-settings/logo/file/`,
+      {
+        responseType: 'blob',
+      },
+    );
     return response.data as Blob;
   },
 
@@ -241,5 +278,25 @@ export const settingsService = {
       ),
     );
     return mapPurchaseSettings(raw);
+  },
+
+  async getQuotationSettings(businessId: string): Promise<QuotationSettings> {
+    const raw = await unwrap<QuotationSettingsRaw>(
+      apiClient.get(`/tenant/businesses/${businessId}/quotation-settings/`),
+    );
+    return mapQuotationSettings(raw);
+  },
+
+  async updateQuotationSettings(
+    businessId: string,
+    request: QuotationSettingsRequest,
+  ): Promise<QuotationSettings> {
+    const raw = await unwrap<QuotationSettingsRaw>(
+      apiClient.patch(
+        `/tenant/businesses/${businessId}/quotation-settings/`,
+        quotationSettingsRequestToBody(request),
+      ),
+    );
+    return mapQuotationSettings(raw);
   },
 };

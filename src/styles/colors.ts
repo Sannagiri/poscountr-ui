@@ -35,11 +35,17 @@ export const statusColorRole = {
   delivered: 'ink',
   completed: 'success',
   cancelled: 'danger',
+  accepted: 'success',
+  declined: 'danger',
+  expired: 'ink',
   active: 'success',
   inactive: 'ink',
   trial: 'accent',
   suspended: 'danger',
   blocked: 'danger',
+  paid: 'success',
+  partial: 'warning',
+  credit: 'danger',
 } as const;
 
 export type StatusKey = keyof typeof statusColorRole;
@@ -79,3 +85,10 @@ export const paymentMethodColorRole: Record<string, string> = {
 export function categoricalColorAt(index: number): string {
   return categoricalPalette[index % categoricalPalette.length];
 }
+
+/** Fixed slot per purchase-order payment status — semantic (paid=good, credit=owed), not arbitrary, so it uses the success/warning/danger tokens directly rather than a `categoricalColorAt` slot. */
+export const purchasePaymentStatusColorRole: Record<string, string> = {
+  paid: colors.success.DEFAULT,
+  partial: colors.warning.DEFAULT,
+  credit: colors.danger.DEFAULT,
+};

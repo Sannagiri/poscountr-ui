@@ -3,6 +3,7 @@ import { useCallback } from 'react';
 import { useAuthStore } from '@/modules/auth';
 import type { BusinessEntity, Location } from '@/modules/businesses';
 import { businessesService } from '@/modules/businesses';
+import type { LayoutConfig } from '@/modules/documentLayouts';
 import { settingsService } from '@/modules/settings';
 
 import { purchasingService } from '../services/purchasingService';
@@ -58,14 +59,29 @@ async function fetchBillContext(purchaseOrder: PurchaseOrder): Promise<{
  * one shared invoice-settings logo — there's no separate "purchasing
  * settings logo" (per the explicit product decision to reuse the same logo
  * uploaded under Settings > Invoices for both sales bills and PO documents).
+ *
+ * `layoutOverride` — `PurchaseOrderBillPreviewModal`'s layout-switcher
+ * choice — passes straight through to `buildPurchaseOrderPdf`; omitted, it
+ * resolves the effective layout itself.
  */
-async function buildBillBlob(purchaseOrder: PurchaseOrder): Promise<Blob> {
+async function buildBillBlob(
+  purchaseOrder: PurchaseOrder,
+  layoutOverride?: LayoutConfig,
+): Promise<Blob> {
   const invoiceSettings = await settingsService.getInvoiceSettings(purchaseOrder.businessId);
   const logoBlob = invoiceSettings.logoUrl
     ? await settingsService.getInvoiceLogoBlob(purchaseOrder.businessId).catch(() => null)
     : null;
   const { business, location, supplier } = await fetchBillContext(purchaseOrder);
-  return buildPurchaseOrderPdf({ purchaseOrder, invoiceSettings, logoBlob, business, location, supplier });
+  return buildPurchaseOrderPdf({
+    purchaseOrder,
+    invoiceSettings,
+    logoBlob,
+    business,
+    location,
+    supplier,
+    layoutOverride,
+  });
 }
 
 /**
@@ -78,11 +94,24 @@ async function buildBillBlob(purchaseOrder: PurchaseOrder): Promise<Blob> {
 export function usePurchaseOrderBill() {
   const queryClient = useQueryClient();
 
-  /** Always regenerates a fresh blob — same reasoning as `useOrderBill.previewBill` (one same-origin `blob:` URL for the iframe/print/download, current settings/logo rather than whatever was in effect when a stored PDF was last uploaded). */
-  const previewBill = useCallback(async (purchaseOrder: PurchaseOrder): Promise<{ blob: Blob }> => {
-    const blob = await buildBillBlob(purchaseOrder);
-    return { blob };
-  }, []);
+  /**
+   * Always regenerates a fresh blob — same reasoning as
+   * `useOrderBill.previewBill` (one same-origin `blob:` URL for the
+   * iframe/print/download, current settings/logo rather than whatever was
+   * in effect when a stored PDF was last uploaded). `layoutOverride` is the
+   * layout-switcher's on-the-fly choice — omit for the effective
+   * (business/global/system default) layout.
+   */
+  const previewBill = useCallback(
+    async (
+      purchaseOrder: PurchaseOrder,
+      layoutOverride?: LayoutConfig,
+    ): Promise<{ blob: Blob }> => {
+      const blob = await buildBillBlob(purchaseOrder, layoutOverride);
+      return { blob };
+    },
+    [],
+  );
 
   /**
    * Idempotent on `pdfUrl` — unlike a sales invoice (only generated once an
@@ -95,7 +124,9 @@ export function usePurchaseOrderBill() {
     async (purchaseOrder: PurchaseOrder): Promise<PurchaseOrder> => {
       if (purchaseOrder.pdfUrl) return purchaseOrder;
       const blob = await buildBillBlob(purchaseOrder);
-      const file = new File([blob], purchaseOrderPdfFilename(purchaseOrder), { type: 'application/pdf' });
+      const file = new File([blob], purchaseOrderPdfFilename(purchaseOrder), {
+        type: 'application/pdf',
+      });
       const uploaded = await purchasingService.uploadPurchaseOrderPdf(purchaseOrder.id, file);
       queryClient.invalidateQueries({ queryKey: ['purchasing', 'purchase-orders'] });
       return uploaded;

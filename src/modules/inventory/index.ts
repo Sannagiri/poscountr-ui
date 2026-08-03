@@ -24,3 +24,4 @@ export type {
   StockSetRequest,
   Unit,
 } from './types/inventory.types';
+export { getAvailableStock, getStockLabel, getStockTone } from './utils/stock';

@@ -23,6 +23,14 @@ export interface DailyTrendChartProps {
   isLoading: boolean;
   isError: boolean;
   error: unknown;
+  /** @default 'Daily sales trend' */
+  title?: string;
+  /** @default 'Revenue over the selected range, with a smoothed trend line' */
+  subtitle?: string;
+  /** Tooltip's first-line label — @default 'Revenue'. Lets a caller with a differently-named money figure (e.g. purchase spend) reuse this chart without a fork; the underlying `revenue`/`orders`/`units` field names stay fixed, only display text changes. */
+  valueLabel?: string;
+  /** @default 'No completed orders in this range' */
+  emptyTitle?: string;
 }
 
 interface TrendPoint {
@@ -79,9 +87,11 @@ function withMovingAverage(points: TrendPoint[]): (TrendPoint & { movingAverage:
 function TrendTooltip({
   active,
   payload,
+  valueLabel,
 }: {
   active?: boolean;
   payload?: { payload: TrendPoint }[];
+  valueLabel: string;
 }) {
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
@@ -89,7 +99,7 @@ function TrendTooltip({
     <div className="rounded-control border border-border bg-white px-3 py-2 text-xs shadow-card">
       <p className="font-semibold text-ink">{point.label}</p>
       <p className="mt-1 text-ink-soft">
-        Revenue: <span className="font-medium text-ink">{formatMoney(point.revenue)}</span>
+        {valueLabel}: <span className="font-medium text-ink">{formatMoney(point.revenue)}</span>
       </p>
       <p className="text-ink-soft">
         Orders: <span className="font-medium text-ink">{point.orders}</span>
@@ -101,23 +111,28 @@ function TrendTooltip({
   );
 }
 
-/** The dashboard's hero chart — daily revenue trend with a smoothed overlay, re-bucketed to weekly/monthly for wide ranges. */
-export function DailyTrendChart({ data, isLoading, isError, error }: DailyTrendChartProps) {
+/** The dashboard's hero chart — daily revenue trend with a smoothed overlay, re-bucketed to weekly/monthly for wide ranges. Reused as-is (parameterized) by the Purchase-summary tab — the bucketing/smoothing logic has zero sales-specific coupling once the header text and tooltip label are props. */
+export function DailyTrendChart({
+  data,
+  isLoading,
+  isError,
+  error,
+  title = 'Daily sales trend',
+  subtitle = 'Revenue over the selected range, with a smoothed trend line',
+  valueLabel = 'Revenue',
+  emptyTitle = 'No completed orders in this range',
+}: DailyTrendChartProps) {
   const points = useMemo(() => withMovingAverage(bucketTrend(data)), [data]);
 
   return (
     <Card>
-      <CardHeader
-        title="Daily sales trend"
-        subtitle="Revenue over the selected range, with a smoothed trend line"
-        icon={TrendingUp}
-      />
+      <CardHeader title={title} subtitle={subtitle} icon={TrendingUp} />
       {isLoading ? (
         <Loader label="Loading trend…" />
       ) : isError ? (
         <ErrorMessage message={describeApiError(error)} />
       ) : points.length === 0 ? (
-        <EmptyState title="No completed orders in this range" />
+        <EmptyState title={emptyTitle} />
       ) : (
         <div style={{ width: '100%', height: 320 }}>
           <ResponsiveContainer>
@@ -137,7 +152,7 @@ export function DailyTrendChart({ data, isLoading, isError, error }: DailyTrendC
                 tickLine={false}
                 width={56}
               />
-              <Tooltip content={<TrendTooltip />} />
+              <Tooltip content={<TrendTooltip valueLabel={valueLabel} />} />
               <Area
                 type="monotone"
                 dataKey="revenue"

@@ -1,11 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, Printer } from 'lucide-react';
 
-import { Button, Loader, Modal } from '@/components';
+import { Button, Loader, Modal, Select, useToast } from '@/components';
 import { describeApiError } from '@/utils/errors';
 
+import { useEffectiveLayout } from '@/modules/documentLayouts';
+import type { Invoice } from '@/modules/reports/types/reports.types';
+import { useInvoiceSettings } from '@/modules/settings';
+
 import { billFilename, useOrderBill } from '../../hooks/useOrderBill';
+import { invoiceService } from '../../services/invoiceService';
 import type { Order } from '../../types/billing.types';
+
+import { useMutation } from '@tanstack/react-query';
 
 export interface OrderBillPreviewModalProps {
   /** `null` closes the modal — same "controlled by whether there's a subject" pattern as `ConfirmDialog`. */
@@ -16,22 +23,69 @@ export interface OrderBillPreviewModalProps {
 interface ReadyState {
   blobUrl: string;
   filename: string;
+  invoice: Invoice;
 }
+
+/** Sentinel `<Select>` value for "no per-invoice pin — follow the business's current default". */
+const FOLLOW_BUSINESS_DEFAULT_VALUE = '__follow_business_default__';
 
 /**
  * Lets staff pull up a completed order's bill again later — from the Orders
- * table, not just right after completion — with Download/Print/Cancel and
- * nothing else ("I will not do anything for that moment" — no re-send, no
- * edit, just look/print/download). Regenerates the PDF fresh via
+ * table, not just right after completion — with Download/Print/Cancel, and
+ * a "Layout" picker (A4 invoice or Thermal Bill, whichever this business's
+ * `InvoiceSettings.paperWidth` renders as). Unlike a plain preview switcher,
+ * picking a layout here is *permanent*: it calls `invoiceService
+ * .setInvoiceLayout` to pin `Invoice.layoutTemplateId` before regenerating,
+ * so every future view/print/download/WhatsApp-send of this exact invoice
+ * uses the picked layout too — not just this one look (`useOrderBill.ts`'s
+ * `buildBillBlob` reads that same pin on both the A4 and thermal paths).
+ * "Follow business default" unpins it back to `LayoutResolutionService
+ * .resolve_effective`'s usual chain. Regenerates the PDF fresh via
  * `useOrderBill`'s `previewBill` rather than fetching whatever's already in
  * S3, so the iframe/download/print below all work off one same-origin
  * `blob:` URL with no cross-origin restrictions to fight.
  */
 export function OrderBillPreviewModal({ order, onClose }: OrderBillPreviewModalProps) {
   const { previewBill } = useOrderBill();
+  const { showToast } = useToast();
   const [state, setState] = useState<ReadyState | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  // Which doc type's layout system applies depends entirely on this
+  // business's own paper width — `undefined` (no resolve call at all) until
+  // that's actually known, so this never briefly assumes the wrong one.
+  const invoiceSettingsQuery = useInvoiceSettings(order?.businessId);
+  const paperWidth = invoiceSettingsQuery.data?.paperWidth;
+  const documentType = paperWidth ? (paperWidth === 'a4' ? 'invoice' : 'thermal_bill') : undefined;
+  const effectiveQuery = useEffectiveLayout({
+    businessId: order?.businessId,
+    documentType,
+  });
+
+  const loadPreview = useCallback(
+    (subject: Order) => {
+      let cancelled = false;
+      let objectUrl: string | null = null;
+
+      previewBill(subject)
+        .then(({ invoice, blob }) => {
+          if (cancelled) return;
+          objectUrl = URL.createObjectURL(blob);
+          setState({ blobUrl: objectUrl, filename: billFilename(invoice), invoice });
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          setErrorMessage(describeApiError(error));
+        });
+
+      return () => {
+        cancelled = true;
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+      };
+    },
+    [previewBill],
+  );
 
   useEffect(() => {
     if (!order) {
@@ -39,25 +93,52 @@ export function OrderBillPreviewModal({ order, onClose }: OrderBillPreviewModalP
       setErrorMessage(null);
       return;
     }
-    let cancelled = false;
-    let objectUrl: string | null = null;
+    return loadPreview(order);
+    // `loadPreview` intentionally excluded — it's stable per `previewBill`
+    // (itself stable), and including it here would be redundant with the
+    // `order` dependency that actually drives re-fetching.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order]);
 
-    previewBill(order)
-      .then(({ invoice, blob }) => {
-        if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
-        setState({ blobUrl: objectUrl, filename: billFilename(invoice) });
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setErrorMessage(describeApiError(error));
-      });
+  const setLayoutMutation = useMutation({
+    mutationFn: ({
+      invoiceId,
+      layoutTemplateId,
+    }: {
+      invoiceId: string;
+      layoutTemplateId: string | null;
+    }) => invoiceService.setInvoiceLayout(invoiceId, layoutTemplateId),
+    onSuccess: () => {
+      showToast({ tone: 'success', message: 'Saved as this invoice’s layout.' });
+      if (order) loadPreview(order);
+    },
+    onError: (error) => showToast({ tone: 'danger', message: describeApiError(error) }),
+  });
 
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [order, previewBill]);
+  const effective = effectiveQuery.data;
+  const layoutValue = state
+    ? (state.invoice.layoutTemplateId ?? FOLLOW_BUSINESS_DEFAULT_VALUE)
+    : undefined;
+  const layoutOptions = effective
+    ? [
+        {
+          value: FOLLOW_BUSINESS_DEFAULT_VALUE,
+          label: `Follow business default${effective.layout ? ` (${effective.layout.name})` : ''}`,
+        },
+        ...effective.alternatives.map((alternative) => ({
+          value: alternative.id,
+          label: `${alternative.name}${alternative.isGlobal ? ' (Global)' : ''}`,
+        })),
+      ]
+    : [];
+
+  function handleLayoutChange(next: string) {
+    if (!state || next === layoutValue) return;
+    setLayoutMutation.mutate({
+      invoiceId: state.invoice.id,
+      layoutTemplateId: next === FOLLOW_BUSINESS_DEFAULT_VALUE ? null : next,
+    });
+  }
 
   function handleDownload() {
     if (!state) return;
@@ -91,7 +172,11 @@ export function OrderBillPreviewModal({ order, onClose }: OrderBillPreviewModalP
         if (!open) onClose();
       }}
       title="Bill preview"
-      description={order ? `${order.orderNumber ?? `Token #${order.tokenNumber}`} · ${order.customerName || 'Walk-in'}` : undefined}
+      description={
+        order
+          ? `${order.orderNumber ?? `Token #${order.tokenNumber}`} · ${order.customerName || 'Walk-in'}`
+          : undefined
+      }
       size="lg"
       footer={
         <>
@@ -112,6 +197,18 @@ export function OrderBillPreviewModal({ order, onClose }: OrderBillPreviewModalP
         </>
       }
     >
+      {layoutOptions.length > 0 ? (
+        <div className="mb-3 flex items-center justify-end gap-2">
+          <span className="text-xs font-semibold text-ink-soft">Layout</span>
+          <Select
+            className="h-9 w-64"
+            options={layoutOptions}
+            value={layoutValue}
+            onChange={handleLayoutChange}
+            disabled={setLayoutMutation.isPending}
+          />
+        </div>
+      ) : null}
       {errorMessage ? (
         <p className="text-sm text-danger">{errorMessage}</p>
       ) : state ? (

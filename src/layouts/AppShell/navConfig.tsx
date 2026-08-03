@@ -3,16 +3,22 @@ import {
   BarChart3,
   Boxes,
   ChefHat,
+  FileClock,
+  GitCompare,
   History,
+  Landmark,
   LayoutDashboard,
+  LayoutTemplate,
   ListOrdered,
   MapPin,
+  Percent,
   Receipt,
   Settings,
   ShieldCheck,
   ShoppingCart,
   Store,
   Ticket,
+  TrendingUp,
   Truck,
   UserCircle,
   UserCog,
@@ -45,6 +51,15 @@ export interface NavItem {
    * regardless of business type, unchanged.
    */
   requiresPurchasingBusiness?: boolean;
+  /**
+   * Only reachable for a quotation-eligible business — every entity type
+   * except restaurant/cafe (`isQuotationEligibleEntityType`,
+   * `@/modules/businesses`). `Sidebar` applies this on top of the plain
+   * role filter via `filterByQuotationGate`, same mechanism
+   * `requiresPurchasingBusiness`/`filterByPurchasingGate` already establish
+   * — just the opposite (deny-list) direction of business-type check.
+   */
+  requiresQuotationBusiness?: boolean;
 }
 
 export interface NavGroup {
@@ -94,17 +109,22 @@ export const OWNER_NAV_GROUPS: NavGroup[] = [
         roles: ['tenant_admin', 'manager'],
       },
       {
-        label: 'Orders',
-        path: '/orders',
-        icon: <Receipt size={ICON_SIZE} />,
-        roles: ['tenant_admin', 'manager'],
-      },
-      {
         label: 'Suppliers',
         path: '/suppliers',
         icon: <Truck size={ICON_SIZE} />,
         roles: ['tenant_admin', 'manager'],
         requiresPurchasingBusiness: true,
+      },
+    ],
+  },
+  {
+    label: 'Operations',
+    items: [
+      {
+        label: 'Orders',
+        path: '/orders',
+        icon: <Receipt size={ICON_SIZE} />,
+        roles: ['tenant_admin', 'manager'],
       },
       {
         label: 'Purchase orders',
@@ -112,6 +132,13 @@ export const OWNER_NAV_GROUPS: NavGroup[] = [
         icon: <ShoppingCart size={ICON_SIZE} />,
         roles: ['tenant_admin', 'manager'],
         requiresPurchasingBusiness: true,
+      },
+      {
+        label: 'Quotations',
+        path: '/quotations',
+        icon: <FileClock size={ICON_SIZE} />,
+        roles: ['tenant_admin', 'manager'],
+        requiresQuotationBusiness: true,
       },
       {
         label: 'Kitchen',
@@ -136,6 +163,27 @@ export const OWNER_NAV_GROUPS: NavGroup[] = [
         icon: <UserCog size={ICON_SIZE} />,
         roles: ['tenant_admin'],
       },
+      {
+        // Tenant-wide, no entity-type gate — every business type can
+        // receive payments, unlike Suppliers/Quotations (both restricted to
+        // a subset of entity types via
+        // `requiresPurchasingBusiness`/`requiresQuotationBusiness`).
+        label: 'Payment Details',
+        path: '/payment-details',
+        icon: <Landmark size={ICON_SIZE} />,
+        roles: ['tenant_admin'],
+      },
+      {
+        // "Can only be created by tenant admins and can be used by anyone"
+        // — same tenant_admin-only administration surface as
+        // Admins/Staff/Payment Details above, not a `Settings` sub-item
+        // (this configures how documents *look*, tenant-wide, not one
+        // business's own numbering/branding settings).
+        label: 'Print Layouts',
+        path: '/layouts',
+        icon: <LayoutTemplate size={ICON_SIZE} />,
+        roles: ['tenant_admin'],
+      },
     ],
   },
   {
@@ -143,9 +191,46 @@ export const OWNER_NAV_GROUPS: NavGroup[] = [
     items: [
       {
         label: 'Reports',
+        // The group itself has no screen of its own — `Sidebar` only uses
+        // this to decide whether the accordion should start expanded (any
+        // child path active). Navigating here directly isn't wired up;
+        // `/reports` redirects to the first child instead (see
+        // `routes/router.tsx`), same "old combined URL" pattern as
+        // `/team`/`/settings`. Split into one sub-item per report (rather
+        // than tabs on one shared page) so each — Sales, Purchase, GST — can
+        // later be suppressed independently by license/add-on, without
+        // restructuring the nav again.
         path: '/reports',
         icon: <BarChart3 size={ICON_SIZE} />,
         roles: ['tenant_admin', 'manager'],
+        children: [
+          {
+            label: 'Sales Reports',
+            path: '/reports/sales',
+            icon: <TrendingUp size={ICON_SIZE} />,
+            roles: ['tenant_admin', 'manager'],
+          },
+          {
+            label: 'Purchase Reports',
+            path: '/reports/purchases',
+            icon: <ShoppingCart size={ICON_SIZE} />,
+            roles: ['tenant_admin', 'manager'],
+            requiresPurchasingBusiness: true,
+          },
+          {
+            label: 'GST Reports',
+            path: '/reports/gst',
+            icon: <Percent size={ICON_SIZE} />,
+            roles: ['tenant_admin', 'manager'],
+          },
+          {
+            label: 'Compare Reports',
+            path: '/reports/compare',
+            icon: <GitCompare size={ICON_SIZE} />,
+            roles: ['tenant_admin', 'manager'],
+            requiresPurchasingBusiness: true,
+          },
+        ],
       },
     ],
   },
@@ -238,7 +323,9 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
 function filterItems(items: NavItem[], role: UserRole): NavItem[] {
   return items
     .filter((item) => item.roles.includes(role))
-    .map((item) => (item.children ? { ...item, children: filterItems(item.children, role) } : item));
+    .map((item) =>
+      item.children ? { ...item, children: filterItems(item.children, role) } : item,
+    );
 }
 
 export function navGroupsForRole(role: UserRole): NavGroup[] {
@@ -270,8 +357,45 @@ function filterByPurchasingGateItems(items: NavItem[], hasPurchasingBusiness: bo
  * `NewOrderPage` already accepts for a manager's unresolvable business
  * context elsewhere).
  */
-export function filterByPurchasingGate(groups: NavGroup[], hasPurchasingBusiness: boolean): NavGroup[] {
+export function filterByPurchasingGate(
+  groups: NavGroup[],
+  hasPurchasingBusiness: boolean,
+): NavGroup[] {
   return groups
-    .map((group) => ({ ...group, items: filterByPurchasingGateItems(group.items, hasPurchasingBusiness) }))
+    .map((group) => ({
+      ...group,
+      items: filterByPurchasingGateItems(group.items, hasPurchasingBusiness),
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
+function filterByQuotationGateItems(items: NavItem[], hasQuotationBusiness: boolean): NavItem[] {
+  return items
+    .filter((item) => !item.requiresQuotationBusiness || hasQuotationBusiness)
+    .map((item) =>
+      item.children
+        ? { ...item, children: filterByQuotationGateItems(item.children, hasQuotationBusiness) }
+        : item,
+    );
+}
+
+/**
+ * Applied on top of `navGroupsForRole`'s own role filter — drops the
+ * `requiresQuotationBusiness` entry (Quotations) unless the caller says at
+ * least one of the acting tenant_admin's businesses is quotation-eligible
+ * (`isQuotationEligibleEntityType` — every entity type except restaurant/
+ * cafe). Same shape as `filterByPurchasingGate` — `Sidebar` resolves
+ * `hasQuotationBusiness` itself, and a manager (who can't call
+ * `/tenant/businesses/` at all) gets the same lenient `true` fallback.
+ */
+export function filterByQuotationGate(
+  groups: NavGroup[],
+  hasQuotationBusiness: boolean,
+): NavGroup[] {
+  return groups
+    .map((group) => ({
+      ...group,
+      items: filterByQuotationGateItems(group.items, hasQuotationBusiness),
+    }))
     .filter((group) => group.items.length > 0);
 }

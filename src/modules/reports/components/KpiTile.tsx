@@ -31,6 +31,15 @@ export interface KpiTileProps {
   goodDirection: 'up' | 'down' | 'neutral';
   /** Optional small print below the value/delta row — e.g. a CGST/SGST/IGST breakdown. */
   caption?: ReactNode;
+  /**
+   * Optional small print on the *same* baseline row as `value`, right beside
+   * it — e.g. `(62.8% of net sales)`. Distinct from `caption`: that one adds
+   * its own line below the value/delta row, which makes just this one tile
+   * taller than its siblings in the same grid row (the row then stretches
+   * every tile to match, leaving visible empty space in the shorter ones).
+   * Use this instead when the extra detail is short enough to fit inline.
+   */
+  inlineCaption?: ReactNode;
 }
 
 /** One executive-summary metric, with a period-over-period delta badge — the single highest-leverage addition over a bare number: it tells you whether the business is winning, not just what a figure is. */
@@ -42,8 +51,10 @@ export function KpiTile({
   deltaPercent,
   goodDirection,
   caption,
+  inlineCaption,
 }: KpiTileProps) {
-  const direction = deltaPercent === null || deltaPercent === 0 ? null : deltaPercent > 0 ? 'up' : 'down';
+  const direction =
+    deltaPercent === null || deltaPercent === 0 ? null : deltaPercent > 0 ? 'up' : 'down';
   const tone: BadgeTone =
     direction === null || goodDirection === 'neutral'
       ? 'neutral'
@@ -53,7 +64,9 @@ export function KpiTile({
 
   return (
     <Card className="flex flex-col gap-3">
-      <span className={`flex h-10 w-10 items-center justify-center rounded-control ${TINT_CLASSES[tint]}`}>
+      <span
+        className={`flex h-10 w-10 items-center justify-center rounded-control ${TINT_CLASSES[tint]}`}
+      >
         <Icon size={18} />
       </span>
       <div>
@@ -66,6 +79,7 @@ export function KpiTile({
               {Math.abs(deltaPercent).toFixed(1)}%
             </Badge>
           ) : null}
+          {inlineCaption ? <span className="text-xs text-ink-faint">{inlineCaption}</span> : null}
         </div>
         {caption ? <p className="mt-1 text-[11px] text-ink-faint">{caption}</p> : null}
       </div>

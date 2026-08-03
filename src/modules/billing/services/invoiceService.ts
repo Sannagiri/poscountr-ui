@@ -1,8 +1,9 @@
 import { apiClient, unwrap } from '@/services/apiClient';
+
+import type { InvoiceRaw } from '@/modules/reports/services/reportsService';
 // Concrete-file import, not the `@/modules/reports` barrel — see the same
 // note in `billingService.ts` (avoids a billing <-> reports barrel cycle).
 import { mapInvoice } from '@/modules/reports/services/reportsService';
-import type { InvoiceRaw } from '@/modules/reports/services/reportsService';
 import type { Invoice } from '@/modules/reports/types/reports.types';
 
 /**
@@ -29,6 +30,22 @@ export const invoiceService = {
     formData.append('pdf', file);
     const raw = await unwrap<InvoiceRaw>(
       apiClient.post(`/tenant/invoices/${invoiceId}/pdf/`, formData),
+    );
+    return mapInvoice(raw);
+  },
+
+  /**
+   * Permanently pins (or, with `null`, unpins) which print layout this
+   * invoice renders with — set from the Bill Preview modal's Layout
+   * dropdown. Distinct from the layout-switcher's own `layoutOverride`
+   * elsewhere in this module, which only affects one preview render and is
+   * never persisted.
+   */
+  async setInvoiceLayout(invoiceId: string, layoutTemplateId: string | null): Promise<Invoice> {
+    const raw = await unwrap<InvoiceRaw>(
+      apiClient.post(`/tenant/invoices/${invoiceId}/layout/`, {
+        layout_template_id: layoutTemplateId,
+      }),
     );
     return mapInvoice(raw);
   },

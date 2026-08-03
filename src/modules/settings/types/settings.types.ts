@@ -68,8 +68,8 @@ export interface InvoiceSettings {
   paperWidth: PaperWidth;
 }
 
-/** Mirrors `PaperWidth.choices` (apps/invoicing/constants.py) exactly. */
-export type PaperWidth = '58mm' | '80mm';
+/** Mirrors `PaperWidth.choices` (apps/invoicing/constants.py) exactly — `'a4'` is a formal tax invoice document, not a thermal receipt width. */
+export type PaperWidth = '58mm' | '80mm' | 'a4';
 
 /** `PATCH /tenant/businesses/{id}/invoice-settings/` body — partial, every field optional. */
 export interface InvoiceSettingsRequest {
@@ -107,6 +107,8 @@ export interface OrderSettings {
   customerNameRequired: boolean;
   customerPhoneRequired: boolean;
   kitchenEnabled: boolean;
+  /** Print a second KOT (Kitchen Order Ticket) slip alongside the thermal bill — independent of `kitchenEnabled` (the digital KDS board): a business with no KDS board still wants a paper ticket for the kitchen. Thermal-only (no counter printer on an A4-invoicing business). */
+  kotReceiptEnabled: boolean;
   /** Table-first order booking (apps.tables) — when true, New order starts with the location's floor plan instead of business/location pickers. */
   tableLayoutEnabled: boolean;
 }
@@ -119,6 +121,7 @@ export interface OrderSettingsRequest {
   customerNameRequired?: boolean;
   customerPhoneRequired?: boolean;
   kitchenEnabled?: boolean;
+  kotReceiptEnabled?: boolean;
   tableLayoutEnabled?: boolean;
 }
 
@@ -143,4 +146,32 @@ export interface PurchaseSettingsRequest {
   resetPeriod?: OrderResetPeriod;
   numberingPrefix?: string;
   numberingStart?: string;
+}
+
+/**
+ * One business's quotation numbering + expiry configuration
+ * (`apps/quotations/models/quotation_settings.py`) — one row per
+ * `BusinessEntity`, only meaningful for a quotation-eligible business
+ * (`isQuotationEligibleEntityType`, `@/modules/businesses` — every entity
+ * type except restaurant/cafe). Mirrors `OrderSettings`'s own numbering
+ * fields exactly, plus `expirationDays`, which drives each quotation's own
+ * lazily-computed `validUntil` (no cron — the backend flips a quotation to
+ * `expired` the next time it's read/acted on, once past that date).
+ */
+export interface QuotationSettings {
+  id: string;
+  businessId: string;
+  resetPeriod: OrderResetPeriod;
+  numberingPrefix: string;
+  numberingStart: string;
+  /** Days after creation a quotation stays open for — `0` means it never expires. */
+  expirationDays: number;
+}
+
+/** `PATCH /tenant/businesses/{id}/quotation-settings/` body — partial, every field optional. Tenant_admin only. */
+export interface QuotationSettingsRequest {
+  resetPeriod?: OrderResetPeriod;
+  numberingPrefix?: string;
+  numberingStart?: string;
+  expirationDays?: number;
 }

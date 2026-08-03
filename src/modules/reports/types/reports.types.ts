@@ -70,6 +70,8 @@ export interface Invoice {
   /** `''` until the frontend-rendered PDF has been uploaded. */
   pdfUrl: string;
   pdfUploadedAt: string | null;
+  /** Which `LayoutTemplate` this invoice is permanently pinned to (set from the Bill Preview modal's Layout dropdown) — `null` means "follow the business's current default", same as before this field existed. */
+  layoutTemplateId: string | null;
   hsnSummary: InvoiceHsnLine[];
 }
 

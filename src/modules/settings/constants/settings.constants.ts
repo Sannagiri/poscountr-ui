@@ -13,6 +13,8 @@ export const SETTINGS_QUERY_KEYS = {
   invoiceSettings: (businessId: string) => ['settings', 'invoice-settings', businessId] as const,
   orderSettings: (businessId: string) => ['settings', 'order-settings', businessId] as const,
   purchaseSettings: (businessId: string) => ['settings', 'purchase-settings', businessId] as const,
+  quotationSettings: (businessId: string) =>
+    ['settings', 'quotation-settings', businessId] as const,
 };
 
 /** Mirrors `OrderResetPeriod.choices` (apps/billing/constants.py) — display order + label. */

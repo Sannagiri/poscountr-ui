@@ -148,7 +148,9 @@ interface ProductLocationOverrideRowRaw {
   has_override: boolean;
 }
 
-function mapProductLocationOverrideRow(raw: ProductLocationOverrideRowRaw): ProductLocationOverrideRow {
+function mapProductLocationOverrideRow(
+  raw: ProductLocationOverrideRowRaw,
+): ProductLocationOverrideRow {
   return {
     locationId: raw.location_id,
     locationName: raw.location_name,
@@ -164,7 +166,8 @@ function productLocationOverrideRequestToBody(request: ProductLocationOverrideRe
   const body: Record<string, unknown> = {};
   if ('isAvailable' in request) body.is_available = request.isAvailable;
   if ('sellingPrice' in request) body.selling_price = request.sellingPrice;
-  if ('defaultDiscountPercent' in request) body.default_discount_percent = request.defaultDiscountPercent;
+  if ('defaultDiscountPercent' in request)
+    body.default_discount_percent = request.defaultDiscountPercent;
   return body;
 }
 
@@ -282,6 +285,29 @@ export const inventoryService = {
   /** Distinct non-empty `category` values across the actor's visible products — feeds the "existing or free-text" category field's `<datalist>` suggestions. */
   async listCategories(): Promise<string[]> {
     return unwrap<string[]>(apiClient.get('/tenant/products/categories/'));
+  },
+
+  /** On-demand, idempotent — a product that already has a barcode is returned unchanged. Powers "Print label". */
+  async generateBarcode(productId: string): Promise<Product> {
+    const raw = await unwrap<ProductRaw>(
+      apiClient.post(`/tenant/products/${productId}/barcode/generate/`),
+    );
+    return mapProduct(raw);
+  },
+
+  /**
+   * Resolves a scanned/typed barcode or SKU to its full product record — a
+   * 404 (a normal `ApiError`, `describeApiError` already renders it) when
+   * nothing matches. `businessId` disambiguates when two businesses happen
+   * to share a code (barcode uniqueness is only enforced per business).
+   */
+  async lookupProductByCode(code: string, businessId?: string): Promise<Product> {
+    const raw = await unwrap<ProductRaw>(
+      apiClient.get('/tenant/products/lookup/', {
+        params: { code, business_id: businessId },
+      }),
+    );
+    return mapProduct(raw);
   },
 
   /** One row per active location of the product's business — inherited (master) defaults where no override exists. Powers `ProductLocationsModal`. */
