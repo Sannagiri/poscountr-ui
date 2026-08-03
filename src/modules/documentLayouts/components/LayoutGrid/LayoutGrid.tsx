@@ -75,7 +75,7 @@ export function LayoutGrid({
     filledFooterCount > 0 ? `${Math.round((100 / filledFooterCount) * 10) / 10}%` : undefined;
 
   return (
-    <div className="rounded-card border border-border bg-white p-4 shadow-card">
+    <div className="rounded-card border border-border bg-surface-card p-4 shadow-card">
       <LogoZoneRow
         header={config.header}
         onChange={(header) => onConfigChange({ ...config, header })}
@@ -372,7 +372,7 @@ function NotesZoneRow({
         disabled={!zone.enabled}
         onChange={(event) => onChange({ ...zone, text: event.target.value })}
         placeholder={`${title} text, authored here (not per document)…`}
-        className="w-full resize-none overflow-hidden rounded-control border border-border bg-white px-3 py-2 text-sm text-ink transition-colors placeholder:text-ink-faint hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:bg-surface/50 disabled:text-ink-faint"
+        className="w-full resize-none overflow-hidden rounded-control border border-border bg-surface-card px-3 py-2 text-sm text-ink transition-colors placeholder:text-ink-faint hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:bg-surface/50 disabled:text-ink-faint"
       />
     </div>
   );

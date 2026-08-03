@@ -23,11 +23,17 @@ interface DisplayRow extends StorePerformanceRow {
   locationName: string;
 }
 
-function StoreTooltip({ active, payload }: { active?: boolean; payload?: { payload: DisplayRow }[] }) {
+function StoreTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: { payload: DisplayRow }[];
+}) {
   if (!active || !payload?.length) return null;
   const row = payload[0].payload;
   return (
-    <div className="rounded-control border border-border bg-white px-3 py-2 text-xs shadow-card">
+    <div className="rounded-control border border-border bg-surface-card px-3 py-2 text-xs shadow-card">
       <p className="font-semibold text-ink">{row.locationName}</p>
       <p className="text-ink-soft">
         {formatMoney(row.revenue)} · {formatPercent(row.share)}
@@ -52,7 +58,10 @@ export function StorePerformanceChart({
 }: StorePerformanceChartProps) {
   const rows = useMemo(() => {
     const nameById = new Map(locations.map((location) => [location.id, location.name]));
-    return data.map((row) => ({ ...row, locationName: nameById.get(row.locationId) ?? row.locationId }));
+    return data.map((row) => ({
+      ...row,
+      locationName: nameById.get(row.locationId) ?? row.locationId,
+    }));
   }, [data, locations]);
 
   return (

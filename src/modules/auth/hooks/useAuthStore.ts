@@ -68,10 +68,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 /**
  * Wires this tab into the cross-tab session-sync mesh — call once at
  * startup (see `main.tsx`), alongside `registerAuthWithApiClient()`.
- * Lets a freshly opened sibling tab ask this one for its session (if this
- * tab is authenticated), and logs this tab out if a sibling tab explicitly
- * logs out. Tokens are never written to `localStorage` by any of this —
- * see `tokenStorage.ts`'s security-decision comment.
+ * Lets a freshly opened sibling tab ask this one for its session (mostly
+ * moot now that tokens live in `localStorage` and a fresh tab already finds
+ * them there directly — see `authTabSync.ts`), and logs this tab out
+ * immediately if a sibling tab explicitly logs out.
  */
 export function registerCrossTabAuth(): () => void {
   const unregisterResponder = registerCrossTabSessionResponder(() => {
@@ -97,14 +97,17 @@ export function registerAuthWithApiClient(): void {
     getAccessToken: () => tokenStorage.getAccessToken(),
     refreshAccessToken: async () => {
       const refreshToken = tokenStorage.getRefreshToken();
+      // `null` here means "nothing to try" — apiClient treats that as a
+      // real session end. Any actual call failure below is left to
+      // propagate instead of being swallowed to `null`: a network blip or
+      // a 5xx isn't proof the refresh token is invalid, so it shouldn't log
+      // the user out the way a genuine `invalid_token`/`session_revoked`
+      // response already does (via apiClient's own response interceptor,
+      // which this same `authService.refresh()` call also goes through).
       if (!refreshToken) return null;
-      try {
-        const result = await authService.refresh(refreshToken);
-        tokenStorage.setTokens(result.accessToken, result.refreshToken);
-        return result.accessToken;
-      } catch {
-        return null;
-      }
+      const result = await authService.refresh(refreshToken);
+      tokenStorage.setTokens(result.accessToken, result.refreshToken);
+      return result.accessToken;
     },
     onSessionExpired: () => {
       useAuthStore.getState().clearSession();

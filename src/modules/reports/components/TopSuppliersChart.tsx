@@ -47,7 +47,7 @@ function SupplierTooltip({
   if (!active || !payload?.length) return null;
   const row = payload[0].payload;
   return (
-    <div className="rounded-control border border-border bg-white px-3 py-2 text-xs shadow-card">
+    <div className="rounded-control border border-border bg-surface-card px-3 py-2 text-xs shadow-card">
       <p className="font-semibold text-ink">{row.name}</p>
       <p className="mt-1 text-ink-soft">
         {formatMoney(row.spend)} · {row.poCount} PO{row.poCount === 1 ? '' : 's'}

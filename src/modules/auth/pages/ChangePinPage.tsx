@@ -138,7 +138,7 @@ export function ChangePinPage() {
   const activeValue = stage === 'enter' ? newPin : confirmPin;
 
   return (
-    <div className="flex min-h-screen bg-white">
+    <div className="flex min-h-screen bg-surface">
       <LoginMarketingPanel />
 
       <div className="flex flex-1 flex-col items-center justify-center px-6 py-10">

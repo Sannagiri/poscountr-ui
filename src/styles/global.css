@@ -2,6 +2,74 @@
 @tailwind components;
 @tailwind utilities;
 
+/**
+ * Light/dark values for every semantic color token — space-separated RGB
+ * channels (not hex/`rgb(...)`) so `tailwind.config.js`'s
+ * `rgb(var(--color-x) / <alpha-value>)` pattern can splice in an opacity
+ * modifier. `.dark`'s `surface`/`surface-card` reuse the brandbook's own
+ * `navy.panel`/`navy.card` tones (already in `tailwind.config.js`, previously
+ * unused anywhere but the login page) — they read as exactly the dark
+ * counterpart the palette was designed with. `brand`/`accent` stay identical
+ * across both themes (orange/blue read fine on both a light and a dark
+ * surface) — only the neutrals (`ink`/`surface`/`border`) and each status
+ * color's `bg`/`text` pair (which need a muted-dark-tint + bright-text
+ * combination instead of light-mode's pastel-bg + dark-text one) actually
+ * change.
+ */
+:root {
+  --color-brand: 255 107 43;
+  --color-brand-light: 255 140 90;
+  --color-brand-dark: 204 74 16;
+  --color-accent: 26 95 212;
+  --color-accent-light: 77 142 255;
+  --color-accent-dark: 13 63 160;
+
+  --color-ink: 10 14 26;
+  --color-ink-mid: 28 35 51;
+  --color-ink-soft: 75 85 99;
+  --color-ink-faint: 156 163 175;
+  --color-surface: 245 247 255;
+  --color-surface-card: 255 255 255;
+  --color-border: 228 232 244;
+  --color-border-strong: 199 206 230;
+
+  --color-success: 16 185 129;
+  --color-success-bg: 209 250 229;
+  --color-success-text: 6 95 70;
+  --color-warning: 245 158 11;
+  --color-warning-bg: 254 243 199;
+  --color-warning-text: 146 64 14;
+  --color-danger: 239 68 68;
+  --color-danger-bg: 254 226 226;
+  --color-danger-text: 153 27 27;
+}
+
+.dark {
+  --color-ink: 241 243 250;
+  --color-ink-mid: 210 215 230;
+  --color-ink-soft: 154 163 190;
+  --color-ink-faint: 107 117 147;
+  --color-surface: 13 18 32;
+  --color-surface-card: 17 24 48;
+  --color-border: 38 47 74;
+  --color-border-strong: 58 69 104;
+
+  --color-success-bg: 15 46 34;
+  --color-success-text: 110 231 183;
+  --color-warning-bg: 58 42 10;
+  --color-warning-text: 252 211 77;
+  --color-danger-bg: 58 20 20;
+  --color-danger-text: 252 165 165;
+}
+
+/* Lets native, non-Tailwind chrome (scrollbars, form-control affordances) render its own dark variant instead of staying stuck light. */
+:root {
+  color-scheme: light;
+}
+.dark {
+  color-scheme: dark;
+}
+
 @layer base {
   html,
   body,
@@ -10,7 +78,7 @@
   }
 
   body {
-    @apply bg-surface font-sans text-ink antialiased;
+    @apply bg-surface font-sans text-ink antialiased transition-colors duration-200;
   }
 
   ::selection {

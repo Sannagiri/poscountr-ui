@@ -24,10 +24,10 @@ export function Tooltip({ content, children, side = 'top' }: TooltipProps) {
           <RadixTooltip.Content
             side={side}
             sideOffset={6}
-            className="z-50 max-w-[220px] rounded-control bg-ink px-2.5 py-1.5 text-[11px] leading-snug text-white shadow-dropdown"
+            className="z-50 max-w-[220px] rounded-control bg-navy px-2.5 py-1.5 text-[11px] leading-snug text-white shadow-dropdown"
           >
             {content}
-            <RadixTooltip.Arrow className="fill-ink" />
+            <RadixTooltip.Arrow className="fill-navy" />
           </RadixTooltip.Content>
         </RadixTooltip.Portal>
       </RadixTooltip.Root>

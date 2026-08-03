@@ -9,6 +9,19 @@
  * Values are lifted 1:1 from the POSCountr brandbook
  * (`POSCountr/poscountr-brandbook-final.html`) — do not invent new colors
  * outside this palette (see docs/coding-standards.md, Centralized Styling System).
+ *
+ * Every semantic color below (brand/accent/ink/surface/border/success/
+ * warning/danger) resolves through a CSS variable instead of a literal hex,
+ * so `bg-surface`/`text-ink`/etc. automatically pick up dark-mode's values
+ * the moment the `dark` class lands on `<html>` (see `src/styles/global.css`
+ * for the actual `:root`/`.dark` variable values, and `src/hooks/useTheme.ts`
+ * for what sets that class) — no component needs its own `dark:` variant for
+ * the common case. `<alpha-value>` is Tailwind's own placeholder token: it
+ * lets opacity utilities like `bg-brand/20` keep working through a CSS
+ * variable the same way they would against a literal hex. `navy` stays
+ * literal hex, unaffected by the toggle — it's the permanently-dark
+ * marketing panel's own palette (`LoginMarketingPanel`), not part of the
+ * light/dark system.
  */
 
 /** @type {import('tailwindcss').Config} */
@@ -19,43 +32,43 @@ export default {
     extend: {
       colors: {
         brand: {
-          DEFAULT: '#FF6B2B',
-          light: '#FF8C5A',
-          dark: '#CC4A10',
+          DEFAULT: 'rgb(var(--color-brand) / <alpha-value>)',
+          light: 'rgb(var(--color-brand-light) / <alpha-value>)',
+          dark: 'rgb(var(--color-brand-dark) / <alpha-value>)',
         },
         accent: {
-          DEFAULT: '#1A5FD4',
-          light: '#4D8EFF',
-          dark: '#0D3FA0',
+          DEFAULT: 'rgb(var(--color-accent) / <alpha-value>)',
+          light: 'rgb(var(--color-accent-light) / <alpha-value>)',
+          dark: 'rgb(var(--color-accent-dark) / <alpha-value>)',
         },
         ink: {
-          DEFAULT: '#0A0E1A',
-          mid: '#1C2333',
-          soft: '#4B5563',
-          faint: '#9CA3AF',
+          DEFAULT: 'rgb(var(--color-ink) / <alpha-value>)',
+          mid: 'rgb(var(--color-ink-mid) / <alpha-value>)',
+          soft: 'rgb(var(--color-ink-soft) / <alpha-value>)',
+          faint: 'rgb(var(--color-ink-faint) / <alpha-value>)',
         },
         surface: {
-          DEFAULT: '#F5F7FF',
-          card: '#FFFFFF',
+          DEFAULT: 'rgb(var(--color-surface) / <alpha-value>)',
+          card: 'rgb(var(--color-surface-card) / <alpha-value>)',
         },
         border: {
-          DEFAULT: '#E4E8F4',
-          strong: '#C7CEE6',
+          DEFAULT: 'rgb(var(--color-border) / <alpha-value>)',
+          strong: 'rgb(var(--color-border-strong) / <alpha-value>)',
         },
         success: {
-          DEFAULT: '#10B981',
-          bg: '#D1FAE5',
-          text: '#065F46',
+          DEFAULT: 'rgb(var(--color-success) / <alpha-value>)',
+          bg: 'rgb(var(--color-success-bg) / <alpha-value>)',
+          text: 'rgb(var(--color-success-text) / <alpha-value>)',
         },
         warning: {
-          DEFAULT: '#F59E0B',
-          bg: '#FEF3C7',
-          text: '#92400E',
+          DEFAULT: 'rgb(var(--color-warning) / <alpha-value>)',
+          bg: 'rgb(var(--color-warning-bg) / <alpha-value>)',
+          text: 'rgb(var(--color-warning-text) / <alpha-value>)',
         },
         danger: {
-          DEFAULT: '#EF4444',
-          bg: '#FEE2E2',
-          text: '#991B1B',
+          DEFAULT: 'rgb(var(--color-danger) / <alpha-value>)',
+          bg: 'rgb(var(--color-danger-bg) / <alpha-value>)',
+          text: 'rgb(var(--color-danger-text) / <alpha-value>)',
         },
         navy: {
           DEFAULT: '#0B1222',

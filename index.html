@@ -3,6 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Applies the `dark` class before React ever mounts (and before the
+      browser's first paint) — `useTheme.ts` owns this same decision at
+      runtime, but doing it again here, synchronously, is what actually
+      prevents a flash of the wrong theme between the blank page loading and
+      React applying it.
+    -->
+    <script>
+      (function () {
+        var stored = localStorage.getItem('poscountr.theme');
+        var isDark = stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.classList.toggle('dark', isDark);
+      })();
+    </script>
     <title>POSCountr</title>
     <meta name="description" content="POSCountr — every business, one flow." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />

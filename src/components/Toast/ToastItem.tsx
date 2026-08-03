@@ -57,7 +57,7 @@ export function ToastItem({ toast, onDismiss }: ToastItemProps) {
   }, [toast.id, toast.duration, onDismiss]);
 
   return (
-    <div className="pointer-events-auto relative flex items-start gap-3 overflow-hidden rounded-card border border-border bg-white p-3 pr-2 shadow-dropdown">
+    <div className="pointer-events-auto relative flex items-start gap-3 overflow-hidden rounded-card border border-border bg-surface-card p-3 pr-2 shadow-dropdown">
       <span
         className={cn(
           'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full',

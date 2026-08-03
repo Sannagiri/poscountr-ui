@@ -81,7 +81,7 @@ export function Select({
           id={selectId}
           aria-invalid={hasError}
           className={cn(
-            'flex h-10 w-full items-center justify-between gap-2 rounded-control border bg-white px-3 text-sm text-ink transition-colors',
+            'flex h-10 w-full items-center justify-between gap-2 rounded-control border bg-surface-card px-3 text-sm text-ink transition-colors',
             'hover:border-border-strong',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
             'disabled:cursor-not-allowed disabled:opacity-50',
@@ -102,7 +102,7 @@ export function Select({
           <RadixSelect.Content
             position="popper"
             sideOffset={4}
-            className="z-50 max-h-64 w-[var(--radix-select-trigger-width)] overflow-hidden rounded-control border border-border bg-white shadow-dropdown"
+            className="z-50 max-h-64 w-[var(--radix-select-trigger-width)] overflow-hidden rounded-control border border-border bg-surface-card shadow-dropdown"
           >
             <RadixSelect.Viewport className="scrollbar-thin p-1">
               {options.length === 0 ? (

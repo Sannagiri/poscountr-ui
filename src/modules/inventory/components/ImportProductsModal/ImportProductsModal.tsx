@@ -212,7 +212,7 @@ export function ImportProductsModal({ open, businessId, onOpenChange }: ImportPr
                   'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors',
                   isDragging
                     ? 'border-brand bg-brand/10 text-brand'
-                    : 'border-border bg-white text-ink-faint',
+                    : 'border-border bg-surface-card text-ink-faint',
                 )}
               >
                 <FileSpreadsheet size={18} />

@@ -1,12 +1,14 @@
 import { AUTH_SYNC_CHANNEL_NAME } from '../constants/auth.constants';
 
 /**
- * Cross-tab session handoff — lets a freshly opened tab pick up the session
- * a sibling tab already has, without ever putting tokens in `localStorage`
- * (see `tokenStorage.ts` for why that constraint exists). Tokens still live
- * only in each tab's own `sessionStorage`; this module just relays them
- * between tabs of the same origin over a `BroadcastChannel`, which never
- * touches disk and only reaches other currently-open tabs, not future ones.
+ * Cross-tab session handoff, originally built for the era when tokens lived
+ * in each tab's own `sessionStorage` (see `tokenStorage.ts` — now
+ * `localStorage`, already shared across tabs natively). `bootstrap()` finds
+ * a token directly in `localStorage` today, so `requestSessionFromOtherTabs`
+ * rarely has anything to do; kept around mainly for
+ * `registerCrossTabLogoutListener` — an explicit logout in one tab still
+ * needs to actively tell sibling tabs to clear their own in-memory auth
+ * state immediately, rather than waiting for their next request to 401.
  *
  * Each function opens its own short-lived (or listener-scoped) channel
  * rather than sharing one module-level instance, so there's no shared

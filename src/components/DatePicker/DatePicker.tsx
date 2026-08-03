@@ -131,7 +131,7 @@ export function DatePicker({
             id={inputId}
             disabled={disabled}
             className={cn(
-              'flex h-10 w-full items-center justify-between gap-2 rounded-control border bg-white px-3 text-left text-sm text-ink transition-colors',
+              'flex h-10 w-full items-center justify-between gap-2 rounded-control border bg-surface-card px-3 text-left text-sm text-ink transition-colors',
               'hover:border-border-strong',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
               'disabled:cursor-not-allowed disabled:opacity-50',
@@ -150,7 +150,7 @@ export function DatePicker({
           <Popover.Content
             align="start"
             sideOffset={4}
-            className="z-50 w-64 rounded-control border border-border bg-white p-3 shadow-dropdown"
+            className="z-50 w-64 rounded-control border border-border bg-surface-card p-3 shadow-dropdown"
           >
             <div className="mb-2 flex items-center justify-between">
               <button

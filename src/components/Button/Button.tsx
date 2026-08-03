@@ -30,12 +30,12 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   primary:
     'bg-brand text-white shadow-sm hover:bg-brand-dark active:bg-brand-dark disabled:bg-brand/50',
   secondary:
-    'bg-white text-ink border border-border shadow-sm hover:bg-surface active:bg-surface disabled:opacity-50',
+    'bg-surface-card text-ink border border-border shadow-sm hover:bg-surface active:bg-surface disabled:opacity-50',
   // Brand-colored outline — a secondary action that still wants to read as
   // "on brand" (e.g. a template download next to a primary "Import"
   // button) without competing with the screen's actual primary action.
   outline:
-    'bg-white text-brand border border-brand hover:bg-brand/5 active:bg-brand/10 disabled:opacity-50',
+    'bg-surface-card text-brand border border-brand hover:bg-brand/5 active:bg-brand/10 disabled:opacity-50',
   ghost: 'bg-transparent text-ink hover:bg-surface active:bg-surface disabled:opacity-50',
   destructive:
     'bg-danger text-white shadow-sm hover:bg-danger/90 active:bg-danger/90 disabled:bg-danger/50',

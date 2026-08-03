@@ -28,7 +28,7 @@ export function Checkbox({ checked, onCheckedChange, label, disabled, className 
       disabled={disabled}
       aria-label={label}
       className={cn(
-        'flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border border-border-strong bg-white transition-colors',
+        'flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border border-border-strong bg-surface-card transition-colors',
         'hover:border-brand',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
         'data-[state=checked]:border-brand data-[state=checked]:bg-brand',

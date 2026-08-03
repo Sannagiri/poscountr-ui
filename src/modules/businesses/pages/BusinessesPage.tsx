@@ -215,7 +215,7 @@ export function BusinessesPage() {
         onClear={clearAllFilters}
         trailing={
           !businessesQuery.isLoading && !businessesQuery.isError ? (
-            <span className="whitespace-nowrap rounded-control border border-border bg-white px-3 py-1.5 text-xs font-semibold text-ink-soft">
+            <span className="whitespace-nowrap rounded-control border border-border bg-surface-card px-3 py-1.5 text-xs font-semibold text-ink-soft">
               {filteredBusinesses.length} of {totalBusinesses.length}{' '}
               {totalBusinesses.length === 1 ? 'business' : 'businesses'}
             </span>

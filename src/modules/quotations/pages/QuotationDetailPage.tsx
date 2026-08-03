@@ -584,7 +584,7 @@ export function QuotationDetailPage() {
             placeholder="Why the customer declined, if known…"
             value={declineReason}
             onChange={(event) => setDeclineReason(event.target.value)}
-            className="rounded-control border border-border bg-white px-3 py-2 text-sm text-ink transition-colors placeholder:text-ink-faint hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+            className="rounded-control border border-border bg-surface-card px-3 py-2 text-sm text-ink transition-colors placeholder:text-ink-faint hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
           />
         </div>
       </Modal>

@@ -54,7 +54,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
         ) : null}
         <div
           className={cn(
-            'flex h-10 items-center gap-1 rounded-control border bg-white pl-3 pr-1.5 transition-colors',
+            'flex h-10 items-center gap-1 rounded-control border bg-surface-card pl-3 pr-1.5 transition-colors',
             'focus-within:ring-2 focus-within:ring-brand/40',
             'hover:border-border-strong',
             hasError ? 'border-danger' : 'border-border',

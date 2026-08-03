@@ -148,7 +148,7 @@ export function NotificationBell() {
           </button>
         }
       >
-        <div className="sticky top-0 z-10 -mt-4 mb-4 flex flex-col gap-1.5 bg-white pb-3 pt-4">
+        <div className="sticky top-0 z-10 -mt-4 mb-4 flex flex-col gap-1.5 bg-surface-card pb-3 pt-4">
           <div className="flex items-center gap-2">
             {/* Sizing lives on this wrapper, not Select's own className — Select's trigger sits inside
                 its own `flex flex-col` wrapper, where `flex-1`/`min-w-0` would size *height*, not width. */}

@@ -153,7 +153,7 @@ export function TenantsPage() {
         onClear={clearAllFilters}
         trailing={
           !tenantsQuery.isLoading && !tenantsQuery.isError ? (
-            <span className="whitespace-nowrap rounded-control border border-border bg-white px-3 py-1.5 text-xs font-semibold text-ink-soft">
+            <span className="whitespace-nowrap rounded-control border border-border bg-surface-card px-3 py-1.5 text-xs font-semibold text-ink-soft">
               {filteredTenants.length} of {totalTenants.length}{' '}
               {totalTenants.length === 1 ? 'business' : 'businesses'}
             </span>

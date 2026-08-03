@@ -89,7 +89,7 @@ export function ProductImageField({ product }: ProductImageFieldProps) {
               aria-label="Replace image"
               disabled={isBusy}
               onClick={() => inputRef.current?.click()}
-              className="absolute -bottom-1.5 -right-1.5 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-white text-ink-soft shadow-sm transition-colors hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+              className="absolute -bottom-1.5 -right-1.5 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-surface-card text-ink-soft shadow-sm transition-colors hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
             >
               {uploadMutation.isPending ? (
                 <Loader2 size={12} className="animate-spin" />
@@ -102,7 +102,7 @@ export function ProductImageField({ product }: ProductImageFieldProps) {
               aria-label="Remove image"
               disabled={isBusy}
               onClick={() => removeMutation.mutate()}
-              className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-white text-ink-faint shadow-sm transition-colors hover:border-danger hover:bg-danger-bg hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+              className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-surface-card text-ink-faint shadow-sm transition-colors hover:border-danger hover:bg-danger-bg hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
             >
               {removeMutation.isPending ? (
                 <Loader2 size={10} className="animate-spin" />

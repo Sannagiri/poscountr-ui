@@ -36,7 +36,7 @@ export function TenantCard({ tenant, onEdit, onManageAdmins, onToggleStatus }: T
   const adminCount = adminsQuery.data?.length;
 
   return (
-    <div className="flex flex-col gap-4 rounded-card border border-border bg-white p-5 shadow-card">
+    <div className="flex flex-col gap-4 rounded-card border border-border bg-surface-card p-5 shadow-card">
       <div className="flex flex-col items-center gap-1.5 text-center">
         <p className="truncate text-base font-bold text-ink">{tenant.displayName || tenant.name}</p>
         <Badge tone={toneForStatus(tenant.status)}>{statusLabel(tenant.status)}</Badge>

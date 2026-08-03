@@ -50,7 +50,7 @@ export function Drawer({
         <Dialog.Content
           className={cn(
             'fixed inset-y-0 right-0 z-50 flex w-[calc(100%-2rem)] flex-col',
-            'border-l border-border bg-white shadow-dropdown focus:outline-none',
+            'border-l border-border bg-surface-card shadow-dropdown focus:outline-none',
             'translate-x-0 transition-transform duration-200 ease-out',
             'data-[state=closed]:translate-x-full',
             SIZE_CLASSES[size],

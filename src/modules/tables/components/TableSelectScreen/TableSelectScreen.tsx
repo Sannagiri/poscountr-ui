@@ -38,16 +38,15 @@ export function TableSelectScreen({
     <Card>
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">
-            Select a table
-          </p>
+          <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">Select a table</p>
           <p className="mt-0.5 text-xs text-ink-faint">
             Tap a free table to start an order, or an occupied one to reopen its bill
           </p>
         </div>
         <div className="flex items-center gap-3 text-[11px] text-ink-faint">
           <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full border-2 border-border bg-white" /> Free
+            <span className="h-2.5 w-2.5 rounded-full border-2 border-border bg-surface-card" />{' '}
+            Free
           </span>
           <span className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full border-2 border-warning-text bg-warning-bg" />{' '}
@@ -68,7 +67,11 @@ export function TableSelectScreen({
           description="Design this location's floor plan from Locations → Edit layout."
         />
       ) : (
-        <TableLayoutCanvas tables={tablesQuery.data ?? []} mode="select" onTableClick={handleTableClick} />
+        <TableLayoutCanvas
+          tables={tablesQuery.data ?? []}
+          mode="select"
+          onTableClick={handleTableClick}
+        />
       )}
     </Card>
   );

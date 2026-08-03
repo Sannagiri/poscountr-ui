@@ -90,14 +90,14 @@ export function InvoiceLogoField({ businessId, logoUrl }: InvoiceLogoFieldProps)
             <img
               src={logoUrl}
               alt="Invoice logo"
-              className="h-16 w-32 rounded-control border border-border bg-white object-contain p-1.5"
+              className="h-16 w-32 rounded-control border border-border bg-surface-card object-contain p-1.5"
             />
             <button
               type="button"
               aria-label="Replace logo"
               disabled={isBusy}
               onClick={() => inputRef.current?.click()}
-              className="absolute -bottom-1.5 -right-1.5 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-white text-ink-soft shadow-sm transition-colors hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+              className="absolute -bottom-1.5 -right-1.5 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-surface-card text-ink-soft shadow-sm transition-colors hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
             >
               {uploadMutation.isPending ? (
                 <Loader2 size={12} className="animate-spin" />
@@ -110,7 +110,7 @@ export function InvoiceLogoField({ businessId, logoUrl }: InvoiceLogoFieldProps)
               aria-label="Remove logo"
               disabled={isBusy}
               onClick={() => removeMutation.mutate()}
-              className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-white text-ink-faint shadow-sm transition-colors hover:border-danger hover:bg-danger-bg hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+              className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-surface-card text-ink-faint shadow-sm transition-colors hover:border-danger hover:bg-danger-bg hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
             >
               {removeMutation.isPending ? (
                 <Loader2 size={10} className="animate-spin" />

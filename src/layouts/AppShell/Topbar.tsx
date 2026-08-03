@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Menu, Settings, Store, User } from 'lucide-react';
+import { LogOut, Menu, Moon, Settings, Store, Sun, User } from 'lucide-react';
 
 import { DropdownMenu } from '@/components';
+import { useTheme } from '@/hooks/useTheme';
 
 import { authService, broadcastSessionCleared, useAuthStore } from '@/modules/auth';
 import { NotificationBell } from '@/modules/notifications';
@@ -27,6 +28,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
   const clearSession = useAuthStore((state) => state.clearSession);
+  const { theme, toggleTheme } = useTheme();
 
   async function handleLogout() {
     try {
@@ -46,7 +48,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   const initials = getInitials(user?.fullName ?? '?');
 
   return (
-    <header className="flex h-[64px] shrink-0 items-center justify-between border-b border-border bg-white px-4 sm:px-5">
+    <header className="flex h-[64px] shrink-0 items-center justify-between border-b border-border bg-surface-card px-4 sm:px-5">
       <div className="flex min-w-0 items-center gap-3.5">
         <button
           type="button"
@@ -84,6 +86,11 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           items={[
             { label: 'My Profile', icon: User, onSelect: () => navigate('/profile') },
             { label: 'Settings', icon: Settings, onSelect: () => navigate('/settings') },
+            {
+              label: theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode',
+              icon: theme === 'dark' ? Sun : Moon,
+              onSelect: toggleTheme,
+            },
             '-',
             { label: 'Log out', icon: LogOut, destructive: true, onSelect: handleLogout },
           ]}

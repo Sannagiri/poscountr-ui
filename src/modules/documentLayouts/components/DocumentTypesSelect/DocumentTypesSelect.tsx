@@ -55,7 +55,7 @@ export function DocumentTypesSelect({
           <button
             type="button"
             className={cn(
-              'flex h-10 w-full items-center justify-between gap-2 rounded-control border bg-white px-3 text-sm text-ink transition-colors',
+              'flex h-10 w-full items-center justify-between gap-2 rounded-control border bg-surface-card px-3 text-sm text-ink transition-colors',
               'hover:border-border-strong',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
               hasError ? 'border-danger' : 'border-border',
@@ -71,7 +71,7 @@ export function DocumentTypesSelect({
           <RadixDropdownMenu.Content
             align="start"
             sideOffset={4}
-            className="z-50 w-[var(--radix-dropdown-menu-trigger-width)] min-w-[12rem] rounded-control border border-border bg-white p-1 shadow-dropdown"
+            className="z-50 w-[var(--radix-dropdown-menu-trigger-width)] min-w-[12rem] rounded-control border border-border bg-surface-card p-1 shadow-dropdown"
           >
             {DOC_TYPE_OPTIONS.map((option) => {
               const checked = value.includes(option.value);

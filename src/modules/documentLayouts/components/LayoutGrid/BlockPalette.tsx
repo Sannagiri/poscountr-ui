@@ -35,7 +35,7 @@ export function BlockPalette() {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search blocks…"
-          className="h-9 w-full rounded-control border border-border bg-white pl-8 pr-3 text-sm text-ink placeholder:text-ink-faint hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+          className="h-9 w-full rounded-control border border-border bg-surface-card pl-8 pr-3 text-sm text-ink placeholder:text-ink-faint hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
         />
       </div>
       <div className="flex flex-wrap gap-2">

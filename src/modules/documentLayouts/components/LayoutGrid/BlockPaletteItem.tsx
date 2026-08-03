@@ -32,7 +32,7 @@ export function BlockPaletteItem({ blockType }: BlockPaletteItemProps) {
           : undefined
       }
       className={cn(
-        'flex cursor-grab items-center gap-1.5 whitespace-nowrap rounded-control border border-border bg-white px-2.5 py-1.5 text-xs font-semibold text-ink shadow-sm transition-colors',
+        'flex cursor-grab items-center gap-1.5 whitespace-nowrap rounded-control border border-border bg-surface-card px-2.5 py-1.5 text-xs font-semibold text-ink shadow-sm transition-colors',
         'hover:border-border-strong active:cursor-grabbing',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
         isDragging && 'relative opacity-40',

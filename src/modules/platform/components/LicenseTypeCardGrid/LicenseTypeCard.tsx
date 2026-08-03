@@ -56,7 +56,7 @@ export function LicenseTypeCard({ licenseType, onEdit, onToggleStatus }: License
   const [limitsOpen, setLimitsOpen] = useState(false);
 
   return (
-    <div className="flex flex-col gap-4 rounded-card border border-border bg-white p-5 shadow-card">
+    <div className="flex flex-col gap-4 rounded-card border border-border bg-surface-card p-5 shadow-card">
       <div className="flex flex-col items-center gap-1.5 text-center">
         <p className="truncate text-base font-bold text-ink">{licenseType.name}</p>
         <Badge tone={toneForStatus(licenseType.isActive ? 'active' : 'inactive')}>

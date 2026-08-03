@@ -158,7 +158,7 @@ export function LicenseTypesPage() {
         onClear={clearAllFilters}
         trailing={
           !licenseTypesQuery.isLoading && !licenseTypesQuery.isError ? (
-            <span className="whitespace-nowrap rounded-control border border-border bg-white px-3 py-1.5 text-xs font-semibold text-ink-soft">
+            <span className="whitespace-nowrap rounded-control border border-border bg-surface-card px-3 py-1.5 text-xs font-semibold text-ink-soft">
               {filteredLicenseTypes.length} of {totalLicenseTypes.length}{' '}
               {totalLicenseTypes.length === 1 ? 'plan' : 'plans'}
             </span>

@@ -149,7 +149,7 @@ function TableChip({ table, mode, containerRef, onTableClick, onPositionChange }
         mode === 'edit' ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
         occupied
           ? 'border-warning-text bg-warning-bg text-warning-text'
-          : 'border-border bg-white text-ink hover:border-brand/40 hover:bg-brand/5',
+          : 'border-border bg-surface-card text-ink hover:border-brand/40 hover:bg-brand/5',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
       )}
     >

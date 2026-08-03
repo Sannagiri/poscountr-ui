@@ -84,16 +84,29 @@ apiClient.interceptors.response.use(
       refreshPromise ??= authSession!.refreshAccessToken().finally(() => {
         refreshPromise = null;
       });
-      const newToken = await refreshPromise;
 
-      if (newToken) {
-        originalRequest.headers = {
-          ...originalRequest.headers,
-          Authorization: `Bearer ${newToken}`,
-        };
-        return apiClient(originalRequest);
+      try {
+        const newToken = await refreshPromise;
+        if (newToken) {
+          originalRequest.headers = {
+            ...originalRequest.headers,
+            Authorization: `Bearer ${newToken}`,
+          };
+          return apiClient(originalRequest);
+        }
+        // Only reachable when there was no refresh token to try at all —
+        // a genuine end of session.
+        authSession?.onSessionExpired();
+      } catch {
+        // `refreshAccessToken()` threw — a transient failure (network/5xx/
+        // timeout), not confirmation the refresh token is actually invalid.
+        // A real `invalid_token`/`session_revoked` response already logs
+        // the user out via this same interceptor's check below, since the
+        // refresh call itself goes through it. Don't force a logout here
+        // too; just let this one request fail so the user can retry once
+        // connectivity is back, instead of losing their whole session over
+        // a blip.
       }
-      authSession?.onSessionExpired();
     }
 
     if (status === 401 && (code === 'session_revoked' || code === 'invalid_token')) {

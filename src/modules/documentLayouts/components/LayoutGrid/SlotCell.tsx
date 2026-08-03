@@ -85,7 +85,7 @@ export function SlotCell({
           'flex min-h-[56px] w-full flex-col items-center justify-center gap-0.5 rounded-control border-2 border-dashed px-2 py-2 text-center transition-colors',
           isEmpty
             ? 'border-border bg-surface/50 text-ink-faint hover:border-border-strong'
-            : 'cursor-grab border-solid border-border-strong bg-white text-ink shadow-sm active:cursor-grabbing',
+            : 'cursor-grab border-solid border-border-strong bg-surface-card text-ink shadow-sm active:cursor-grabbing',
           isOver && 'border-brand bg-brand/5',
           selected && 'outline outline-2 outline-offset-1 outline-brand',
           isDragging && 'relative opacity-40',
@@ -97,7 +97,7 @@ export function SlotCell({
       </button>
 
       {widthHint ? (
-        <span className="pointer-events-none absolute -top-2 left-1.5 rounded-full border border-border bg-white px-1.5 py-0.5 text-[9px] font-semibold text-ink-soft shadow-sm">
+        <span className="pointer-events-none absolute -top-2 left-1.5 rounded-full border border-border bg-surface-card px-1.5 py-0.5 text-[9px] font-semibold text-ink-soft shadow-sm">
           {widthHint}
         </span>
       ) : null}
@@ -111,7 +111,7 @@ export function SlotCell({
             onClear(slotKey);
           }}
           className={cn(
-            'absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-white text-ink-faint shadow-sm transition-opacity',
+            'absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-surface-card text-ink-faint shadow-sm transition-opacity',
             'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100',
             'hover:border-danger hover:text-danger focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
             selected && 'opacity-100',

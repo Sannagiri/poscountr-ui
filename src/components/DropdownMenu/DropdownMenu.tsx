@@ -48,7 +48,7 @@ export function DropdownMenu({ trigger, items, align = 'end' }: DropdownMenuProp
         <RadixDropdownMenu.Content
           align={align}
           sideOffset={6}
-          className="z-50 w-48 rounded-control border border-border bg-white p-1 shadow-dropdown"
+          className="z-50 w-48 rounded-control border border-border bg-surface-card p-1 shadow-dropdown"
         >
           {items.map((entry, index) => {
             if (entry === '-') {
