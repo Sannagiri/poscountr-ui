@@ -17,6 +17,12 @@ export type Unit =
 
 export type PharmacySchedule = 'otc' | 'h' | 'h1' | 'x' | 'g';
 
+/** `stock` = normal catalog item; `service` = a recurring non-stock charge
+ * (service/installation/inspection fee, etc.) — always forces
+ * `isStockTracked`/`isBatchTracked` to `false` server-side, regardless of
+ * the owning business's `entityType`. */
+export type ProductType = 'stock' | 'service';
+
 /** One location's on-hand quantity for a product — embedded directly on `Product` (`ProductOutputSerializer.get_stock`), not a separate fetch. */
 export interface ProductStockRow {
   locationId: string;
@@ -41,6 +47,7 @@ export interface Product {
   name: string;
   sku: string;
   category: string;
+  productType: ProductType;
   unit: Unit;
   barcode: string | null;
   sellingPrice: string;
@@ -99,6 +106,7 @@ export interface ProductRequest {
   name: string;
   sku: string;
   category?: string;
+  productType?: ProductType;
   unit?: Unit;
   barcode?: string;
   sellingPrice: string;

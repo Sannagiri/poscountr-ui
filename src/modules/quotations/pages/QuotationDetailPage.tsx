@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { CheckCircle2, Eye, ListOrdered, Trash2, XCircle } from 'lucide-react';
 
-import type { DataTableColumn, DataTableRowAction } from '@/components';
+import type { AddAdhocLineValues, DataTableColumn, DataTableRowAction } from '@/components';
 import {
+  AddAdhocLineModal,
   Badge,
   Button,
   Card,
@@ -35,7 +36,7 @@ import {
 } from '../constants/quotation.constants';
 import { useQuotation } from '../hooks/useQuotation';
 import { quotationService } from '../services/quotationService';
-import type { QuotationItem } from '../types/quotation.types';
+import type { QuotationItem, QuotationLineRequest } from '../types/quotation.types';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
@@ -83,6 +84,7 @@ export function QuotationDetailPage() {
   );
 
   const [addItemSearch, setAddItemSearch] = useState('');
+  const [adhocModalOpen, setAdhocModalOpen] = useState(false);
   const [pendingAccept, setPendingAccept] = useState(false);
   const [pendingDecline, setPendingDecline] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
@@ -94,22 +96,14 @@ export function QuotationDetailPage() {
   }
 
   const addItemMutation = useMutation({
-    mutationFn: ({
-      productId,
-      quantity,
-      discountPercent,
-    }: {
-      productId: string;
-      quantity: string;
-      discountPercent?: string;
-    }) => quotationService.addItem(quotationId as string, { productId, quantity, discountPercent }),
+    mutationFn: (line: QuotationLineRequest) =>
+      quotationService.addItem(quotationId as string, line),
     onSuccess: invalidateQuotation,
     onError: (error) => showToast({ tone: 'danger', message: describeApiError(error) }),
   });
 
   const removeItemMutation = useMutation({
-    mutationFn: (productId: string) =>
-      quotationService.removeItem(quotationId as string, productId),
+    mutationFn: (itemId: string) => quotationService.removeItem(quotationId as string, itemId),
     onSuccess: invalidateQuotation,
     onError: (error) => showToast({ tone: 'danger', message: describeApiError(error) }),
   });
@@ -153,7 +147,7 @@ export function QuotationDetailPage() {
         header: 'Qty',
         width: '110px',
         render: (item) => {
-          const product = productById.get(item.productId);
+          const product = item.productId ? productById.get(item.productId) : undefined;
           const available = product ? getAvailableStock(product, quotation?.locationId) : null;
           const short = available !== null && Number(item.quantity) > available;
           return (
@@ -259,13 +253,26 @@ export function QuotationDetailPage() {
     });
   }
 
+  function handleAddAdhocLine(values: AddAdhocLineValues) {
+    addItemMutation.mutate(
+      {
+        name: values.name,
+        unitPrice: values.price,
+        quantity: values.quantity,
+        gstRate: values.gstRate || undefined,
+        discountPercent: values.discountPercent || undefined,
+      },
+      { onSuccess: () => setAdhocModalOpen(false) },
+    );
+  }
+
   function getItemRowActions(): DataTableRowAction<QuotationItem>[] {
     return [
       {
         label: 'Remove item',
         icon: Trash2,
         destructive: true,
-        onSelect: (item) => removeItemMutation.mutate(item.productId),
+        onSelect: (item) => removeItemMutation.mutate(item.id),
         disabled: () => removeItemMutation.isPending,
       },
     ];
@@ -407,9 +414,14 @@ export function QuotationDetailPage() {
 
             {canEditItems ? (
               <div className="mt-4 border-t border-border pt-4">
-                <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                  Add a product
-                </p>
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">
+                    Add a product
+                  </p>
+                  <Button variant="secondary" size="sm" onClick={() => setAdhocModalOpen(true)}>
+                    + Add custom line
+                  </Button>
+                </div>
                 <div>
                   <SearchInput
                     value={addItemSearch}
@@ -592,6 +604,15 @@ export function QuotationDetailPage() {
       <QuotationBillPreviewModal
         quotation={showBillPreview ? quotation : null}
         onClose={() => setShowBillPreview(false)}
+      />
+
+      <AddAdhocLineModal
+        open={adhocModalOpen}
+        onClose={() => setAdhocModalOpen(false)}
+        priceLabel="Unit price"
+        onSubmit={handleAddAdhocLine}
+        isSubmitting={addItemMutation.isPending}
+        error={addItemMutation.error ? describeApiError(addItemMutation.error) : null}
       />
     </div>
   );

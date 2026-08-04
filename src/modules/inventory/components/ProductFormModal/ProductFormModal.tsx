@@ -1,6 +1,6 @@
 import type { ChangeEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
-import { Controller, useForm } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 import { Boxes, ImagePlus, Layers, MapPin, Pencil, X } from 'lucide-react';
 
 import { Button, Checkbox, ErrorMessage, Input, Modal, Select, useToast } from '@/components';
@@ -20,7 +20,7 @@ import {
 import { useCategories } from '../../hooks/useCategories';
 import { useProducts } from '../../hooks/useProducts';
 import { inventoryService } from '../../services/inventoryService';
-import type { Product, ProductRequest } from '../../types/inventory.types';
+import type { Product, ProductRequest, ProductType } from '../../types/inventory.types';
 import type { ProductFormValues } from '../../validations/inventory.validation';
 import { productSchema } from '../../validations/inventory.validation';
 import { BatchesModal } from '../BatchesModal';
@@ -63,10 +63,24 @@ const SCHEDULE_SELECT_OPTIONS = [{ value: '', label: 'Not set' }, ...PHARMACY_SC
 
 const NEW_CATEGORY_VALUE = '__new__';
 
-/** Mirrors the backend's `apps/inventory/constants.py::flags_for` — pharmacy → batch-tracked; restaurant/cafe → not stock-tracked (made to order); everything else → plain stock-tracked. */
+const PRODUCT_TYPE_OPTIONS = [
+  { value: 'stock', label: 'Stock item' },
+  { value: 'service', label: 'Service / non-stock charge' },
+];
+
+/**
+ * Mirrors the backend's `apps/inventory/constants.py::flags_for`, plus
+ * `ProductService.create`/`.update`'s own override: pharmacy → batch-tracked;
+ * restaurant/cafe → not stock-tracked (made to order); everything else →
+ * plain stock-tracked — UNLESS `productType === 'service'`, which forces
+ * both flags off regardless of entity type (a service charge never holds
+ * stock).
+ */
 function flagsForEntityType(
   entityType: EntityType | undefined,
+  productType: ProductType,
 ): { isStockTracked: boolean; isBatchTracked: boolean } | null {
+  if (productType === 'service') return { isStockTracked: false, isBatchTracked: false };
   if (!entityType) return null;
   return {
     isBatchTracked: entityType === 'pharmacy',
@@ -80,6 +94,7 @@ function defaultValuesFor(product: Product | undefined): ProductFormValues {
       name: '',
       sku: '',
       category: '',
+      productType: 'stock',
       unit: 'pcs',
       barcode: '',
       sellingPrice: '',
@@ -103,6 +118,7 @@ function defaultValuesFor(product: Product | undefined): ProductFormValues {
     name: product.name,
     sku: product.sku,
     category: product.category,
+    productType: product.productType,
     unit: product.unit,
     barcode: product.barcode ?? '',
     sellingPrice: product.sellingPrice,
@@ -349,6 +365,7 @@ export function ProductFormModal({
         name: values.name,
         sku: values.sku,
         category: values.category || undefined,
+        productType: values.productType,
         unit: values.unit,
         barcode: values.barcode || undefined,
         sellingPrice: values.sellingPrice,
@@ -403,12 +420,19 @@ export function ProductFormModal({
     onError: (error) => setSaveError(describeApiError(error)),
   });
 
-  const resolvedFlags = isEditing
-    ? {
-        isStockTracked: editingProduct?.isStockTracked ?? false,
-        isBatchTracked: editingProduct?.isBatchTracked ?? false,
-      }
-    : flagsForEntityType(businessEntityType);
+  // Watched (not just read once) so flipping "Product type" in the form
+  // immediately hides/shows the opening-stock/restaurant/pharmacy sections
+  // below, before the save round-trip confirms it server-side.
+  const productTypeValue = useWatch({ control, name: 'productType' }) ?? 'stock';
+  const resolvedFlags: { isStockTracked: boolean; isBatchTracked: boolean } | null =
+    productTypeValue === 'service'
+      ? { isStockTracked: false, isBatchTracked: false }
+      : isEditing
+        ? {
+            isStockTracked: editingProduct?.isStockTracked ?? false,
+            isBatchTracked: editingProduct?.isBatchTracked ?? false,
+          }
+        : flagsForEntityType(businessEntityType, productTypeValue);
   const isBatchTracked = resolvedFlags?.isBatchTracked ?? false;
   const isRestaurantLike = resolvedFlags
     ? !resolvedFlags.isStockTracked && !resolvedFlags.isBatchTracked
@@ -544,7 +568,7 @@ export function ProductFormModal({
 
           <Input label="Name" {...register('name')} errorMessage={errors.name?.message} />
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Controller
               control={control}
               name="category"
@@ -594,6 +618,26 @@ export function ProductFormModal({
                     />
                   )}
                 </div>
+              )}
+            />
+            <Controller
+              control={control}
+              name="productType"
+              render={({ field }) => (
+                <Select
+                  label="Product type"
+                  hint={
+                    productTypeValue === 'service'
+                      ? 'Never tracked as stock, regardless of business type'
+                      : undefined
+                  }
+                  options={PRODUCT_TYPE_OPTIONS}
+                  value={field.value}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  name={field.name}
+                  errorMessage={errors.productType?.message}
+                />
               )}
             />
             <Controller

@@ -13,6 +13,7 @@ import type {
   ProductLocationOverrideRow,
   ProductRequest,
   ProductStockRow,
+  ProductType,
   StockAdjustRequest,
   StockItem,
   StockSetRequest,
@@ -52,6 +53,7 @@ interface ProductRaw {
   name: string;
   sku: string;
   category: string;
+  product_type: ProductType;
   unit: Unit;
   barcode: string | null;
   selling_price: string;
@@ -85,6 +87,7 @@ function mapProduct(raw: ProductRaw): Product {
     name: raw.name,
     sku: raw.sku,
     category: raw.category,
+    productType: raw.product_type,
     unit: raw.unit,
     barcode: raw.barcode,
     sellingPrice: raw.selling_price,
@@ -118,6 +121,7 @@ function productRequestToBody(request: Partial<ProductRequest>) {
     name: request.name,
     sku: request.sku,
     category: request.category,
+    product_type: request.productType,
     unit: request.unit,
     barcode: request.barcode,
     selling_price: request.sellingPrice,

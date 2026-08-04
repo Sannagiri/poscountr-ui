@@ -49,6 +49,7 @@ export const productSchema = z
     name: z.string().min(1, 'Enter a product name'),
     sku: z.string().min(1, 'Enter a SKU'),
     category: z.string().optional().or(z.literal('')),
+    productType: z.enum(['stock', 'service']),
     unit: z.enum([
       'pcs',
       'kg',
@@ -130,10 +131,7 @@ export type StockSetFormValues = z.infer<ReturnType<typeof buildStockSetSchema>>
 /** Client-side mirror of `StockAdjustInputSerializer`. */
 export function buildStockAdjustSchema(unit: Unit) {
   return z.object({
-    delta: z
-      .string()
-      .min(1, 'Enter an amount')
-      .regex(signedQuantityRegexFor(unit), QUANTITY_HINT),
+    delta: z.string().min(1, 'Enter an amount').regex(signedQuantityRegexFor(unit), QUANTITY_HINT),
   });
 }
 

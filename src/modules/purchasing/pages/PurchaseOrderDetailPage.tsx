@@ -3,8 +3,9 @@ import { Controller, useForm } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Eye, ListOrdered, Lock, Pencil, Plus, Trash2 } from 'lucide-react';
 
-import type { DataTableColumn, DataTableRowAction } from '@/components';
+import type { AddAdhocLineValues, DataTableColumn, DataTableRowAction } from '@/components';
 import {
+  AddAdhocLineModal,
   Badge,
   Button,
   Card,
@@ -110,6 +111,7 @@ export function PurchaseOrderDetailPage() {
 
   const [addLineSearch, setAddLineSearch] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [adhocModalOpen, setAdhocModalOpen] = useState(false);
   const [pendingCancel, setPendingCancel] = useState(false);
   const [pendingComplete, setPendingComplete] = useState(false);
   const [pendingEditTerms, setPendingEditTerms] = useState(false);
@@ -161,6 +163,25 @@ export function PurchaseOrderDetailPage() {
   const removeItemMutation = useMutation({
     mutationFn: (itemId: string) => purchasingService.removeItem(purchaseOrderId as string, itemId),
     onSuccess: invalidatePurchaseOrder,
+    onError: (error) => showToast({ tone: 'danger', message: describeApiError(error) }),
+  });
+
+  /** Independent of `addItemMutation` — an ad-hoc line (freight, inspection,
+   * etc.) has no `selectedProduct` to key off, so this is its own mutation
+   * rather than trying to route it through the catalog-line form. */
+  const addAdhocItemMutation = useMutation({
+    mutationFn: (values: AddAdhocLineValues) =>
+      purchasingService.addItem(purchaseOrderId as string, {
+        name: values.name,
+        purchasePrice: values.price,
+        quantity: values.quantity,
+        gstRate: values.gstRate || undefined,
+        discountPercent: values.discountPercent || undefined,
+      }),
+    onSuccess: () => {
+      invalidatePurchaseOrder();
+      setAdhocModalOpen(false);
+    },
     onError: (error) => showToast({ tone: 'danger', message: describeApiError(error) }),
   });
 
@@ -295,7 +316,12 @@ export function PurchaseOrderDetailPage() {
           </span>
         ),
       },
-      { key: 'quantity', header: 'Qty', width: '70px', render: (item) => formatQuantity(item.quantity) },
+      {
+        key: 'quantity',
+        header: 'Qty',
+        width: '70px',
+        render: (item) => formatQuantity(item.quantity),
+      },
       {
         key: 'purchasePrice',
         header: 'Price',
@@ -335,7 +361,9 @@ export function PurchaseOrderDetailPage() {
     return (
       <EmptyState
         title="Purchase order not found"
-        description={purchaseOrderQuery.isError ? describeApiError(purchaseOrderQuery.error) : undefined}
+        description={
+          purchaseOrderQuery.isError ? describeApiError(purchaseOrderQuery.error) : undefined
+        }
         action={
           <Button variant="secondary" onClick={() => navigate(PURCHASING_ROUTES.purchaseOrders)}>
             Back to purchase orders
@@ -406,7 +434,9 @@ export function PurchaseOrderDetailPage() {
             >
               Preview
             </Button>
-            <Badge tone={toneForStatus(purchaseOrder.status)}>{statusLabel(purchaseOrder.status)}</Badge>
+            <Badge tone={toneForStatus(purchaseOrder.status)}>
+              {statusLabel(purchaseOrder.status)}
+            </Badge>
           </>
         }
       />
@@ -422,7 +452,9 @@ export function PurchaseOrderDetailPage() {
           */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Card>
-              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">Supplier</p>
+              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
+                Supplier
+              </p>
               <div className="flex flex-col gap-1 text-sm text-ink">
                 <p className="font-medium">{purchaseOrder.supplierName}</p>
                 {purchaseOrder.supplierPhone ? (
@@ -447,15 +479,21 @@ export function PurchaseOrderDetailPage() {
               <div className="flex flex-col gap-1.5 text-sm">
                 <div className="flex justify-between">
                   <span className="text-ink-soft">PO #</span>
-                  <span className="font-medium text-ink">{purchaseOrder.purchaseNumber ?? '—'}</span>
+                  <span className="font-medium text-ink">
+                    {purchaseOrder.purchaseNumber ?? '—'}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-ink-soft">Location</span>
-                  <span className="truncate pl-2 font-medium text-ink">{purchaseOrder.locationName}</span>
+                  <span className="truncate pl-2 font-medium text-ink">
+                    {purchaseOrder.locationName}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-ink-soft">Placed</span>
-                  <span className="font-medium text-ink">{formatTimestamp(purchaseOrder.createdAt)}</span>
+                  <span className="font-medium text-ink">
+                    {formatTimestamp(purchaseOrder.createdAt)}
+                  </span>
                 </div>
               </div>
             </Card>
@@ -478,9 +516,14 @@ export function PurchaseOrderDetailPage() {
 
             {canEditItems ? (
               <div className="mt-4 border-t border-border pt-4">
-                <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                  Add a line
-                </p>
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">
+                    Add a line
+                  </p>
+                  <Button variant="secondary" size="sm" onClick={() => setAdhocModalOpen(true)}>
+                    + Add custom line
+                  </Button>
+                </div>
                 <div>
                   <SearchInput
                     value={addLineSearch}
@@ -500,7 +543,9 @@ export function PurchaseOrderDetailPage() {
                         className="flex flex-col items-start gap-0.5 rounded-control border border-border p-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5 data-[selected=true]:border-brand data-[selected=true]:bg-brand/5"
                         data-selected={selectedProduct?.id === product.id}
                       >
-                        <span className="truncate text-sm font-semibold text-ink">{product.name}</span>
+                        <span className="truncate text-sm font-semibold text-ink">
+                          {product.name}
+                        </span>
                         <span className="text-xs text-ink-faint">
                           {product.sku}
                           {product.isBatchTracked ? ' · batch-tracked' : ''}
@@ -547,7 +592,11 @@ export function PurchaseOrderDetailPage() {
                           {...registerLine('expiryDate')}
                           errorMessage={lineErrors.expiryDate?.message}
                         />
-                        <Input label="Mfg date (optional)" type="date" {...registerLine('mfgDate')} />
+                        <Input
+                          label="Mfg date (optional)"
+                          type="date"
+                          {...registerLine('mfgDate')}
+                        />
                         <Input
                           label="MRP (optional)"
                           {...registerLine('mrp')}
@@ -556,7 +605,11 @@ export function PurchaseOrderDetailPage() {
                       </div>
                     ) : null}
                     <div className="flex justify-end gap-2">
-                      <Button type="button" variant="secondary" onClick={() => setSelectedProduct(null)}>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => setSelectedProduct(null)}
+                      >
                         Cancel
                       </Button>
                       <Button type="submit" isLoading={addItemMutation.isPending}>
@@ -649,13 +702,17 @@ export function PurchaseOrderDetailPage() {
                 {purchaseOrder.supplierInvoiceNumber ? (
                   <div className="flex justify-between">
                     <span className="text-ink-soft">Supplier invoice #</span>
-                    <span className="font-medium text-ink">{purchaseOrder.supplierInvoiceNumber}</span>
+                    <span className="font-medium text-ink">
+                      {purchaseOrder.supplierInvoiceNumber}
+                    </span>
                   </div>
                 ) : null}
                 {purchaseOrder.supplierInvoiceDate ? (
                   <div className="flex justify-between">
                     <span className="text-ink-soft">Supplier invoice date</span>
-                    <span className="font-medium text-ink">{purchaseOrder.supplierInvoiceDate}</span>
+                    <span className="font-medium text-ink">
+                      {purchaseOrder.supplierInvoiceDate}
+                    </span>
                   </div>
                 ) : null}
               </div>
@@ -689,7 +746,8 @@ export function PurchaseOrderDetailPage() {
                       leadingIcon={<Pencil size={13} />}
                       onClick={() => {
                         resetEditTermsForm({
-                          paymentStatus: (purchaseOrder.paymentStatus || 'paid') as PurchasePaymentTermsFormValues['paymentStatus'],
+                          paymentStatus: (purchaseOrder.paymentStatus ||
+                            'paid') as PurchasePaymentTermsFormValues['paymentStatus'],
                           actualTotal: purchaseOrder.actualTotal ?? '',
                           dueDate: purchaseOrder.dueDate ?? '',
                           supplierInvoiceNumber: purchaseOrder.supplierInvoiceNumber,
@@ -717,7 +775,9 @@ export function PurchaseOrderDetailPage() {
 
           {timelineSteps.length > 1 ? (
             <Card>
-              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">Timeline</p>
+              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
+                Timeline
+              </p>
               <div className="flex flex-col gap-2.5">
                 {timelineSteps.map((step) => (
                   <div key={step.label} className="flex items-center gap-2.5">
@@ -802,10 +862,17 @@ export function PurchaseOrderDetailPage() {
             name="dueDate"
             control={completeControl}
             render={({ field }) => (
-              <DatePicker label="Due date (optional)" value={field.value} onChange={field.onChange} />
+              <DatePicker
+                label="Due date (optional)"
+                value={field.value}
+                onChange={field.onChange}
+              />
             )}
           />
-          <Input label="Supplier invoice # (optional)" {...registerComplete('supplierInvoiceNumber')} />
+          <Input
+            label="Supplier invoice # (optional)"
+            {...registerComplete('supplierInvoiceNumber')}
+          />
           <Controller
             name="supplierInvoiceDate"
             control={completeControl}
@@ -869,10 +936,17 @@ export function PurchaseOrderDetailPage() {
             name="dueDate"
             control={editTermsControl}
             render={({ field }) => (
-              <DatePicker label="Due date (optional)" value={field.value} onChange={field.onChange} />
+              <DatePicker
+                label="Due date (optional)"
+                value={field.value}
+                onChange={field.onChange}
+              />
             )}
           />
-          <Input label="Supplier invoice # (optional)" {...registerEditTerms('supplierInvoiceNumber')} />
+          <Input
+            label="Supplier invoice # (optional)"
+            {...registerEditTerms('supplierInvoiceNumber')}
+          />
           <Controller
             name="supplierInvoiceDate"
             control={editTermsControl}
@@ -938,7 +1012,9 @@ export function PurchaseOrderDetailPage() {
         open={showPaymentHistory}
         onOpenChange={setShowPaymentHistory}
         title="Payment history"
-        description={purchaseOrder.amountPaid ? `₹${purchaseOrder.amountPaid} recorded so far` : undefined}
+        description={
+          purchaseOrder.amountPaid ? `₹${purchaseOrder.amountPaid} recorded so far` : undefined
+        }
         size="sm"
         footer={
           <Button variant="secondary" onClick={() => setShowPaymentHistory(false)}>
@@ -951,13 +1027,18 @@ export function PurchaseOrderDetailPage() {
         ) : (
           <div className="flex flex-col gap-3">
             {purchaseOrder.payments.map((payment) => (
-              <div key={payment.id} className="flex flex-col gap-0.5 border-b border-border pb-3 text-sm last:border-none last:pb-0">
+              <div
+                key={payment.id}
+                className="flex flex-col gap-0.5 border-b border-border pb-3 text-sm last:border-none last:pb-0"
+              >
                 <div className="flex justify-between">
                   <span className="font-semibold text-ink">₹{payment.amount}</span>
                   <span className="text-xs text-ink-faint">{payment.paidOn}</span>
                 </div>
                 <div className="flex justify-between text-xs text-ink-faint">
-                  <span>{payment.recordedByName ? `Recorded by ${payment.recordedByName}` : '—'}</span>
+                  <span>
+                    {payment.recordedByName ? `Recorded by ${payment.recordedByName}` : '—'}
+                  </span>
                   {payment.note ? <span className="truncate pl-2">{payment.note}</span> : null}
                 </div>
               </div>
@@ -969,6 +1050,15 @@ export function PurchaseOrderDetailPage() {
       <PurchaseOrderBillPreviewModal
         purchaseOrder={showBillPreview ? purchaseOrder : null}
         onClose={() => setShowBillPreview(false)}
+      />
+
+      <AddAdhocLineModal
+        open={adhocModalOpen}
+        onClose={() => setAdhocModalOpen(false)}
+        priceLabel="Purchase price"
+        onSubmit={(values) => addAdhocItemMutation.mutate(values)}
+        isSubmitting={addAdhocItemMutation.isPending}
+        error={addAdhocItemMutation.error ? describeApiError(addAdhocItemMutation.error) : null}
       />
     </div>
   );

@@ -3,7 +3,18 @@ import { Controller, useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import { ListOrdered, Plus, Trash2 } from 'lucide-react';
 
-import { Button, Card, EmptyState, Input, PageHeader, SearchInput, Select, useToast } from '@/components';
+import type { AddAdhocLineValues } from '@/components';
+import {
+  AddAdhocLineModal,
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  PageHeader,
+  SearchInput,
+  Select,
+  useToast,
+} from '@/components';
 import { describeApiError } from '@/utils/errors';
 import { getSessionMemory, setSessionMemory } from '@/utils/sessionMemory';
 
@@ -18,8 +29,14 @@ import { useAutoSelectSingle } from '../hooks/useAutoSelectSingle';
 import { useSuppliers } from '../hooks/useSuppliers';
 import { purchasingService } from '../services/purchasingService';
 import type { PurchaseOrderLineRequest } from '../types/purchasing.types';
-import type { PurchaseLineFormValues, PurchaseOrderCreateFormValues } from '../validations/purchasing.validation';
-import { buildPurchaseLineSchema, purchaseOrderCreateSchema } from '../validations/purchasing.validation';
+import type {
+  PurchaseLineFormValues,
+  PurchaseOrderCreateFormValues,
+} from '../validations/purchasing.validation';
+import {
+  buildPurchaseLineSchema,
+  purchaseOrderCreateSchema,
+} from '../validations/purchasing.validation';
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
@@ -37,17 +54,41 @@ function createLocalId(): string {
  * keyed by its own `localId`: the same product can appear on more than one
  * line here (one per batch), so two lines for the same product are two
  * separate cart rows, not one bumped quantity.
+ *
+ * `kind: 'adhoc'` is a typed-in one-time/external line (freight, inspection,
+ * etc.) with no `Product` behind it — added via `AddAdhocLineModal` as an
+ * additional entry point alongside the product-tile-then-form flow below,
+ * which stays untouched for catalog lines.
  */
-interface PurchaseCartLine {
-  localId: string;
-  product: Product;
-  quantity: string;
-  purchasePrice: string;
-  discountPercent: string;
-  batchNumber: string;
-  mfgDate: string;
-  expiryDate: string;
-  mrp: string;
+type PurchaseCartLine =
+  | {
+      kind: 'product';
+      localId: string;
+      product: Product;
+      quantity: string;
+      purchasePrice: string;
+      discountPercent: string;
+      batchNumber: string;
+      mfgDate: string;
+      expiryDate: string;
+      mrp: string;
+    }
+  | {
+      kind: 'adhoc';
+      localId: string;
+      name: string;
+      gstRate: string;
+      quantity: string;
+      purchasePrice: string;
+      discountPercent: string;
+    };
+
+function lineName(line: PurchaseCartLine): string {
+  return line.kind === 'product' ? line.product.name : line.name;
+}
+
+function lineGstRate(line: PurchaseCartLine): string {
+  return line.kind === 'product' ? line.product.gstRate : line.gstRate;
 }
 
 /**
@@ -83,13 +124,17 @@ function lineTaxableValue(line: PurchaseCartLine): number {
  * `gstRate` and added on top of the summed taxable value, matching the
  * backend's own tax-exclusive-purchase-price math.
  */
-function estimateTotals(lines: PurchaseCartLine[]): { subtotal: number; taxTotal: number; total: number } {
+function estimateTotals(lines: PurchaseCartLine[]): {
+  subtotal: number;
+  taxTotal: number;
+  total: number;
+} {
   let subtotal = 0;
   let taxTotal = 0;
   for (const line of lines) {
     const taxable = lineTaxableValue(line);
     subtotal += taxable;
-    taxTotal += taxable * (Number(line.product.gstRate || 0) / 100);
+    taxTotal += taxable * (Number(lineGstRate(line) || 0) / 100);
   }
   return { subtotal, taxTotal, total: subtotal + taxTotal };
 }
@@ -117,6 +162,7 @@ export function NewPurchaseOrderPage() {
   const [productSearch, setProductSearch] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [supplierModalOpen, setSupplierModalOpen] = useState(false);
+  const [adhocModalOpen, setAdhocModalOpen] = useState(false);
 
   const {
     register,
@@ -147,7 +193,11 @@ export function NewPurchaseOrderPage() {
   }, [selectedBusinessId, selectedLocationId]);
 
   const businessOptions = useMemo(
-    () => (businessesQuery.data ?? []).map((business) => ({ value: business.id, label: business.name })),
+    () =>
+      (businessesQuery.data ?? []).map((business) => ({
+        value: business.id,
+        label: business.name,
+      })),
     [businessesQuery.data],
   );
 
@@ -166,7 +216,10 @@ export function NewPurchaseOrderPage() {
   );
 
   useEffect(() => {
-    if (selectedLocationId && !filteredLocations.some((location) => location.id === selectedLocationId)) {
+    if (
+      selectedLocationId &&
+      !filteredLocations.some((location) => location.id === selectedLocationId)
+    ) {
       setValue('locationId', '');
     }
   }, [filteredLocations, selectedLocationId, setValue]);
@@ -178,7 +231,10 @@ export function NewPurchaseOrderPage() {
     () =>
       (suppliersQuery.data ?? [])
         .filter((supplier) => supplier.isActive)
-        .filter((supplier) => !isTenantAdmin || !selectedBusinessId || supplier.businessId === selectedBusinessId)
+        .filter(
+          (supplier) =>
+            !isTenantAdmin || !selectedBusinessId || supplier.businessId === selectedBusinessId,
+        )
         .map((supplier) => ({ value: supplier.id, label: supplier.name })),
     [suppliersQuery.data, isTenantAdmin, selectedBusinessId],
   );
@@ -228,6 +284,7 @@ export function NewPurchaseOrderPage() {
     setCart((prev) => [
       ...prev,
       {
+        kind: 'product',
         localId: createLocalId(),
         product: selectedProduct,
         quantity: values.quantity,
@@ -243,6 +300,23 @@ export function NewPurchaseOrderPage() {
     resetLineForm(EMPTY_LINE_FORM);
   }
 
+  /** The `AddAdhocLineModal`'s entry point — independent of the product-tile-then-form flow above, since a freight/inspection charge has no product to pick first. */
+  function addAdhocLine(values: AddAdhocLineValues) {
+    setCart((prev) => [
+      ...prev,
+      {
+        kind: 'adhoc',
+        localId: createLocalId(),
+        name: values.name,
+        gstRate: values.gstRate || '0',
+        quantity: values.quantity,
+        purchasePrice: values.price,
+        discountPercent: values.discountPercent || '0',
+      },
+    ]);
+    setAdhocModalOpen(false);
+  }
+
   function removeLine(localId: string) {
     setCart((prev) => prev.filter((line) => line.localId !== localId));
   }
@@ -256,17 +330,25 @@ export function NewPurchaseOrderPage() {
         locationId: values.locationId || undefined,
         supplierId: values.supplierId,
         note: values.note || undefined,
-        items: cart.map(
-          (line): PurchaseOrderLineRequest => ({
-            productId: line.product.id,
-            quantity: line.quantity,
-            purchasePrice: line.purchasePrice,
-            discountPercent: line.discountPercent || undefined,
-            batchNumber: line.batchNumber || undefined,
-            mfgDate: line.mfgDate || undefined,
-            expiryDate: line.expiryDate || undefined,
-            mrp: line.mrp || undefined,
-          }),
+        items: cart.map((line): PurchaseOrderLineRequest =>
+          line.kind === 'product'
+            ? {
+                productId: line.product.id,
+                quantity: line.quantity,
+                purchasePrice: line.purchasePrice,
+                discountPercent: line.discountPercent || undefined,
+                batchNumber: line.batchNumber || undefined,
+                mfgDate: line.mfgDate || undefined,
+                expiryDate: line.expiryDate || undefined,
+                mrp: line.mrp || undefined,
+              }
+            : {
+                name: line.name,
+                gstRate: line.gstRate,
+                quantity: line.quantity,
+                purchasePrice: line.purchasePrice,
+                discountPercent: line.discountPercent || undefined,
+              },
         ),
       }),
     onSuccess: (purchaseOrder) => {
@@ -398,12 +480,23 @@ export function NewPurchaseOrderPage() {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-4">
             <Card>
-              <div className="mb-3">
-                <SearchInput
-                  value={productSearch}
-                  onChange={(event) => setProductSearch(event.target.value)}
-                  placeholder="Search products by name or SKU…"
-                />
+              <div className="mb-3 flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <SearchInput
+                    value={productSearch}
+                    onChange={(event) => setProductSearch(event.target.value)}
+                    placeholder="Search products by name or SKU…"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="h-10 shrink-0"
+                  onClick={() => setAdhocModalOpen(true)}
+                >
+                  + Custom line
+                </Button>
               </div>
               {isTenantAdmin && !selectedBusinessId ? (
                 <EmptyState
@@ -418,7 +511,11 @@ export function NewPurchaseOrderPage() {
               ) : availableProducts.length === 0 ? (
                 <EmptyState
                   title="No products found"
-                  description={productSearch ? 'Try a different search term.' : 'This business has no products yet.'}
+                  description={
+                    productSearch
+                      ? 'Try a different search term.'
+                      : 'This business has no products yet.'
+                  }
                 />
               ) : (
                 <div className="grid max-h-[420px] grid-cols-1 content-start gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
@@ -430,7 +527,9 @@ export function NewPurchaseOrderPage() {
                       className="flex flex-col items-start gap-0.5 rounded-control border border-border p-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5 data-[selected=true]:border-brand data-[selected=true]:bg-brand/5"
                       data-selected={selectedProduct?.id === product.id}
                     >
-                      <span className="truncate text-sm font-semibold text-ink">{product.name}</span>
+                      <span className="truncate text-sm font-semibold text-ink">
+                        {product.name}
+                      </span>
                       <span className="text-xs text-ink-faint">
                         {product.sku}
                         {product.isBatchTracked ? ' · batch-tracked' : ''}
@@ -484,16 +583,20 @@ export function NewPurchaseOrderPage() {
                         {...registerLine('expiryDate')}
                         errorMessage={lineErrors.expiryDate?.message}
                       />
+                      <Input label="Mfg date (optional)" type="date" {...registerLine('mfgDate')} />
                       <Input
-                        label="Mfg date (optional)"
-                        type="date"
-                        {...registerLine('mfgDate')}
+                        label="MRP (optional)"
+                        {...registerLine('mrp')}
+                        errorMessage={lineErrors.mrp?.message}
                       />
-                      <Input label="MRP (optional)" {...registerLine('mrp')} errorMessage={lineErrors.mrp?.message} />
                     </div>
                   ) : null}
                   <div className="flex justify-end gap-2">
-                    <Button type="button" variant="secondary" onClick={() => setSelectedProduct(null)}>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => setSelectedProduct(null)}
+                    >
                       Cancel
                     </Button>
                     <Button type="submit">Add to order</Button>
@@ -520,12 +623,23 @@ export function NewPurchaseOrderPage() {
                           className="flex items-start justify-between gap-2 rounded-control border border-border/60 p-2.5"
                         >
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium text-ink">{line.product.name}</p>
+                            <p className="truncate text-sm font-medium text-ink">
+                              {lineName(line)}
+                              {line.kind === 'adhoc' ? (
+                                <span className="ml-1.5 text-[10px] font-normal uppercase tracking-wide text-ink-faint">
+                                  Custom
+                                </span>
+                              ) : null}
+                            </p>
                             <p className="text-xs text-ink-faint">
                               ₹{line.purchasePrice} × {line.quantity}
-                              {Number(line.discountPercent) > 0 ? ` − ${line.discountPercent}%` : ''} = ₹
-                              {lineTaxableValue(line).toFixed(2)}
-                              {line.batchNumber ? ` · batch ${line.batchNumber}` : ''}
+                              {Number(line.discountPercent) > 0
+                                ? ` − ${line.discountPercent}%`
+                                : ''}{' '}
+                              = ₹{lineTaxableValue(line).toFixed(2)}
+                              {line.kind === 'product' && line.batchNumber
+                                ? ` · batch ${line.batchNumber}`
+                                : ''}
                             </p>
                           </div>
                           <button
@@ -565,11 +679,20 @@ export function NewPurchaseOrderPage() {
               disabled={cart.length === 0}
               onClick={handleSubmit((values) => createMutation.mutate(values))}
             >
-              {cart.length > 0 ? `Create purchase order · ₹${totals.total.toFixed(2)}` : 'Create purchase order'}
+              {cart.length > 0
+                ? `Create purchase order · ₹${totals.total.toFixed(2)}`
+                : 'Create purchase order'}
             </Button>
           </div>
         </div>
       </div>
+
+      <AddAdhocLineModal
+        open={adhocModalOpen}
+        onClose={() => setAdhocModalOpen(false)}
+        priceLabel="Purchase price"
+        onSubmit={addAdhocLine}
+      />
     </div>
   );
 }

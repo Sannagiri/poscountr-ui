@@ -1,6 +1,7 @@
 import { apiClient, unwrap } from '@/services/apiClient';
 
 import type {
+  LineType,
   PurchaseOrder,
   PurchaseOrderCompleteRequest,
   PurchaseOrderCreateRequest,
@@ -77,7 +78,8 @@ function supplierRequestToBody(request: Partial<SupplierRequest>) {
 
 interface PurchaseOrderItemRaw {
   id: string;
-  product_id: string;
+  product_id: string | null;
+  line_type: LineType;
   name: string;
   purchase_price: string;
   gst_rate: string;
@@ -88,13 +90,14 @@ interface PurchaseOrderItemRaw {
   mfg_date: string | null;
   expiry_date: string | null;
   mrp: string | null;
-  unit: string;
+  unit: string | null;
 }
 
 function mapPurchaseOrderItem(raw: PurchaseOrderItemRaw): PurchaseOrderItem {
   return {
     id: raw.id,
     productId: raw.product_id,
+    lineType: raw.line_type,
     name: raw.name,
     purchasePrice: raw.purchase_price,
     gstRate: raw.gst_rate,
@@ -109,9 +112,14 @@ function mapPurchaseOrderItem(raw: PurchaseOrderItemRaw): PurchaseOrderItem {
   };
 }
 
+/** Sends whichever pair the caller set — `product_id` (a catalog line) or
+ * `name`(+`gst_rate`) (an ad-hoc line) — never both, mirroring the backend's
+ * "exactly one of" line contract (see `PurchaseOrderLineRequest`). */
 function purchaseLineRequestToBody(line: PurchaseOrderLineRequest) {
   return {
     product_id: line.productId,
+    name: line.name,
+    gst_rate: line.gstRate,
     quantity: line.quantity,
     purchase_price: line.purchasePrice,
     discount_percent: line.discountPercent,

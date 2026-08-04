@@ -3,6 +3,7 @@ import { apiClient, unwrap, unwrapWithMeta } from '@/services/apiClient';
 import type { Order, OrderStatus, OrderType, PaymentMethod } from '@/modules/billing';
 
 import type {
+  LineType,
   Quotation,
   QuotationCreateRequest,
   QuotationItem,
@@ -22,20 +23,22 @@ import type {
 
 interface QuotationItemRaw {
   id: string;
-  product_id: string;
+  product_id: string | null;
+  line_type: LineType;
   name: string;
   unit_price: string;
   gst_rate: string;
   quantity: string;
   discount_percent: string;
   line_total: string;
-  unit: string;
+  unit: string | null;
 }
 
 function mapQuotationItem(raw: QuotationItemRaw): QuotationItem {
   return {
     id: raw.id,
     productId: raw.product_id,
+    lineType: raw.line_type,
     name: raw.name,
     unitPrice: raw.unit_price,
     gstRate: raw.gst_rate,
@@ -46,9 +49,15 @@ function mapQuotationItem(raw: QuotationItemRaw): QuotationItem {
   };
 }
 
+/** Sends whichever pair the caller set — `product_id` (a catalog line) or
+ * `name`+`unit_price`(+`gst_rate`) (an ad-hoc line) — never both, mirroring
+ * the backend's "exactly one of" line contract (see `QuotationLineRequest`). */
 function quotationLineRequestToBody(line: QuotationLineRequest) {
   return {
     product_id: line.productId,
+    name: line.name,
+    unit_price: line.unitPrice,
+    gst_rate: line.gstRate,
     quantity: line.quantity,
     discount_percent: line.discountPercent,
   };
@@ -145,15 +154,16 @@ function quotationCreateRequestToBody(request: QuotationCreateRequest) {
  */
 interface OrderItemRaw {
   id: string;
-  product_id: string;
+  product_id: string | null;
+  line_type: LineType;
   name: string;
   unit_price: string;
   gst_rate: string;
   quantity: string;
   discount_percent: string;
   line_total: string;
-  unit: string;
-  hsn_code: string;
+  unit: string | null;
+  hsn_code: string | null;
 }
 
 interface OrderRaw {
@@ -224,6 +234,7 @@ function mapOrder(raw: OrderRaw): Order {
     items: raw.items.map((item) => ({
       id: item.id,
       productId: item.product_id,
+      lineType: item.line_type,
       name: item.name,
       unitPrice: item.unit_price,
       gstRate: item.gst_rate,
@@ -270,7 +281,7 @@ export const quotationService = {
     return mapQuotation(raw);
   },
 
-  /** Adds/increases `line.productId`'s line — only accepted while the quotation is still `pending`. */
+  /** For a catalog line (`productId` set), adds/increases that line; for an ad-hoc line (`name`+`unitPrice` set instead), always appends a new line. Only accepted while the quotation is still `pending`. */
   async addItem(quotationId: string, line: QuotationLineRequest): Promise<Quotation> {
     const raw = await unwrap<QuotationRaw>(
       apiClient.post(`/tenant/quotations/${quotationId}/items/`, quotationLineRequestToBody(line)),
@@ -278,10 +289,11 @@ export const quotationService = {
     return mapQuotation(raw);
   },
 
-  async removeItem(quotationId: string, productId: string): Promise<Quotation> {
+  /** Removes one line by its own id (not `productId` — an ad-hoc line has no product, and a quotation may hold more than one). */
+  async removeItem(quotationId: string, itemId: string): Promise<Quotation> {
     const raw = await unwrap<QuotationRaw>(
       apiClient.delete(`/tenant/quotations/${quotationId}/items/`, {
-        data: { product_id: productId },
+        data: { item_id: itemId },
       }),
     );
     return mapQuotation(raw);

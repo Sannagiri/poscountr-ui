@@ -107,7 +107,11 @@ function buildItemColumns(items: OrderItem[]): ItemColumns<OrderItem> {
         String(index + 1),
         item.name,
         item.hsnCode || '—',
-        `${formatQuantity(item.quantity, item.unit as Unit)} ${item.unit}`,
+        // `unit` is `null` for an ad-hoc/external line (no catalog Product
+        // behind it) — just the bare quantity then, no unit suffix.
+        item.unit
+          ? `${formatQuantity(item.quantity, item.unit as Unit)} ${item.unit}`
+          : formatQuantity(item.quantity),
         formatRate(item.gstRate),
         money(item.unitPrice, { bare: true }),
       ];

@@ -20,6 +20,10 @@ export type OrderType = 'dine_in' | 'takeaway' | 'delivery';
 /** Mirrors `PaymentMethod.choices` (apps/billing/constants.py) — set only at completion. */
 export type PaymentMethod = 'cash' | 'card' | 'upi' | 'wallet' | 'other';
 
+/** `product` = catalog-backed line; `adhoc` = a typed-in one-time/external
+ * line with no `Product` behind it (`productId`/`unit`/`hsnCode` are `null`). */
+export type LineType = 'product' | 'adhoc';
+
 /**
  * A priced line on an order. `name`/`unitPrice`/`gstRate` are snapshotted
  * server-side from the product at the moment it was added, so a line stays
@@ -28,7 +32,8 @@ export type PaymentMethod = 'cash' | 'card' | 'upi' | 'wallet' | 'other';
  */
 export interface OrderItem {
   id: string;
-  productId: string;
+  productId: string | null;
+  lineType: LineType;
   name: string;
   unitPrice: string;
   gstRate: string;
@@ -36,10 +41,10 @@ export interface OrderItem {
   /** This line's own discount (0-100), set when the line was added — `'0.00'` when none. Already netted into `lineTotal`. */
   discountPercent: string;
   lineTotal: string;
-  /** Live from `Product.unit` — not snapshotted, formatting-only (e.g. `'pcs'`, `'kg'`). */
-  unit: string;
-  /** Live from `Product.hsn_code` — not snapshotted; `''` when the product has none set. */
-  hsnCode: string;
+  /** Live from `Product.unit` — not snapshotted, formatting-only (e.g. `'pcs'`, `'kg'`). `null` for an ad-hoc line. */
+  unit: string | null;
+  /** Live from `Product.hsn_code` — not snapshotted; `''` when the product has none set, `null` for an ad-hoc line. */
+  hsnCode: string | null;
 }
 
 /**
@@ -100,9 +105,20 @@ export interface Order {
   createdAt: string;
 }
 
-/** One line when opening an order — `quantity` is that line's quantity, not a delta. `discountPercent` (0-100, optional) is this line's own discount. */
+/**
+ * One line when opening an order — `quantity` is that line's quantity, not
+ * a delta. `discountPercent` (0-100, optional) is this line's own discount.
+ *
+ * Either `productId` (a catalog line) or `name` + `unitPrice` (an ad-hoc/
+ * external one-time line, no catalog entry) must be set — never both, never
+ * neither. `gstRate` only applies to (and is only sent for) an ad-hoc line —
+ * a catalog line's GST always comes from the product.
+ */
 export interface OrderLineRequest {
-  productId: string;
+  productId?: string;
+  name?: string;
+  unitPrice?: string;
+  gstRate?: string;
   quantity: string;
   discountPercent?: string;
 }
@@ -168,17 +184,14 @@ export interface OfflineOrderSyncRequest {
 }
 
 /**
- * `POST /tenant/orders/{id}/items/` body — sets this product's line to
- * `quantity` (adding the line if it doesn't exist yet); this is the line's
- * new absolute quantity, not an increment. Only accepted while the order
- * is still `pending`.
+ * `POST /tenant/orders/{id}/items/` body — for a catalog line (`productId`
+ * set), sets that product's line to `quantity` (adding the line if it
+ * doesn't exist yet); this is the line's new absolute quantity, not an
+ * increment. For an ad-hoc line (`name`+`unitPrice` set instead), always
+ * appends a new line — see `OrderLineRequest`. Only accepted while the
+ * order is still `pending`.
  */
-export interface OrderItemRequest {
-  productId: string;
-  quantity: string;
-  /** This line's own discount (0-100, optional) — defaults to 0 server-side. */
-  discountPercent?: string;
-}
+export type OrderItemRequest = OrderLineRequest;
 
 /** A kitchen line — quantity + name only, never a price (`KDSItemOutputSerializer`). */
 export interface KdsItem {

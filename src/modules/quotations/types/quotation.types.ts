@@ -23,23 +23,38 @@ import type { OrderType } from '@/modules/billing';
  */
 export type QuotationStatus = 'pending' | 'accepted' | 'declined' | 'expired';
 
+/** `product` = catalog-backed line; `adhoc` = a typed-in one-time/external
+ * line with no `Product` behind it (`productId`/`unit` are `null`). */
+export type LineType = 'product' | 'adhoc';
+
 /** One line on a quotation — same shape as a sales `OrderItem`, just quoted rather than billed yet. */
 export interface QuotationItem {
   id: string;
-  productId: string;
+  productId: string | null;
+  lineType: LineType;
   name: string;
   unitPrice: string;
   gstRate: string;
   quantity: string;
   discountPercent: string;
   lineTotal: string;
-  /** Live from `Product.unit` — not snapshotted, formatting-only (e.g. `'pcs'`, `'kg'`). */
-  unit: string;
+  /** Live from `Product.unit` — not snapshotted, formatting-only (e.g. `'pcs'`, `'kg'`). `null` for an ad-hoc line. */
+  unit: string | null;
 }
 
-/** One line on `POST /tenant/quotations/{id}/items/` — always an upsert by `productId`, same convention `OrderItemRequest` follows. */
+/**
+ * One line on `POST /tenant/quotations/{id}/items/` — for a catalog line
+ * upserts by `productId`, same convention `OrderItemRequest` follows.
+ *
+ * Either `productId` (a catalog line) or `name` + `unitPrice` (an ad-hoc/
+ * external one-time line, no catalog entry) must be set — never both, never
+ * neither. `gstRate` only applies to (and is only sent for) an ad-hoc line.
+ */
 export interface QuotationLineRequest {
-  productId: string;
+  productId?: string;
+  name?: string;
+  unitPrice?: string;
+  gstRate?: string;
   quantity: string;
   discountPercent?: string;
 }

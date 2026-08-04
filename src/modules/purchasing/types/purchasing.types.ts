@@ -51,6 +51,11 @@ export type PurchaseOrderStatus = 'pending' | 'completed' | 'cancelled';
 /** Set only at completion (see `purchasingService.complete`) — `''` for an open or cancelled purchase order. */
 export type PurchasePaymentStatus = '' | 'paid' | 'partial' | 'credit';
 
+/** `product` = catalog-backed line; `adhoc` = a typed-in one-time/external
+ * line (freight, inspection, etc.) with no `Product` behind it (`productId`/
+ * `unit` are `null`, no batch concept). */
+export type LineType = 'product' | 'adhoc';
+
 /**
  * One line on a purchase order. Unlike a sales `OrderItem`, the same
  * product can appear on more than one line — one per batch, since a single
@@ -66,7 +71,8 @@ export type PurchasePaymentStatus = '' | 'paid' | 'partial' | 'credit';
  */
 export interface PurchaseOrderItem {
   id: string;
-  productId: string;
+  productId: string | null;
+  lineType: LineType;
   name: string;
   purchasePrice: string;
   gstRate: string;
@@ -77,8 +83,8 @@ export interface PurchaseOrderItem {
   mfgDate: string | null;
   expiryDate: string | null;
   mrp: string | null;
-  /** Live from `Product.unit` — not snapshotted, formatting-only (e.g. `'pcs'`, `'kg'`). */
-  unit: string;
+  /** Live from `Product.unit` — not snapshotted, formatting-only (e.g. `'pcs'`, `'kg'`). `null` for an ad-hoc line. */
+  unit: string | null;
 }
 
 /**
@@ -89,9 +95,16 @@ export interface PurchaseOrderItem {
  * backend only when the selected product is batch-tracked
  * (`Product.isBatchTracked`) — same gate `ProductFormModal` already uses for
  * a pharmacy-style product's fields.
+ *
+ * Either `productId` (a catalog line) or `name` (an ad-hoc/external line, no
+ * catalog entry) must be set — never both, never neither. `purchasePrice` is
+ * required either way; `gstRate` only applies to (and is only sent for) an
+ * ad-hoc line — a catalog line's GST always comes from the product.
  */
 export interface PurchaseOrderLineRequest {
-  productId: string;
+  productId?: string;
+  name?: string;
+  gstRate?: string;
   quantity: string;
   purchasePrice: string;
   discountPercent?: string;

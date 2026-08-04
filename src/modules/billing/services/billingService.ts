@@ -11,11 +11,13 @@ import type { Invoice } from '@/modules/reports/types/reports.types';
 import type {
   KdsItem,
   KdsOrder,
+  LineType,
   OfflineOrderSyncRequest,
   Order,
   OrderCreateRequest,
   OrderItem,
   OrderItemRequest,
+  OrderLineRequest,
   OrderStatus,
   OrderType,
   PaymentMethod,
@@ -34,21 +36,23 @@ import type {
 
 interface OrderItemRaw {
   id: string;
-  product_id: string;
+  product_id: string | null;
+  line_type: LineType;
   name: string;
   unit_price: string;
   gst_rate: string;
   quantity: string;
   discount_percent: string;
   line_total: string;
-  unit: string;
-  hsn_code: string;
+  unit: string | null;
+  hsn_code: string | null;
 }
 
 function mapOrderItem(raw: OrderItemRaw): OrderItem {
   return {
     id: raw.id,
     productId: raw.product_id,
+    lineType: raw.line_type,
     name: raw.name,
     unitPrice: raw.unit_price,
     gstRate: raw.gst_rate,
@@ -138,6 +142,20 @@ function mapOrder(raw: OrderRaw): Order {
   };
 }
 
+/** Sends whichever pair the caller set — `product_id` (a catalog line) or
+ * `name`+`unit_price`(+`gst_rate`) (an ad-hoc line) — never both, mirroring
+ * the backend's "exactly one of" line contract (see `OrderLineRequest`). */
+function orderLineRequestToBody(line: OrderLineRequest) {
+  return {
+    product_id: line.productId,
+    name: line.name,
+    unit_price: line.unitPrice,
+    gst_rate: line.gstRate,
+    quantity: line.quantity,
+    discount_percent: line.discountPercent,
+  };
+}
+
 function orderCreateRequestToBody(request: OrderCreateRequest) {
   return {
     business_id: request.businessId,
@@ -147,11 +165,7 @@ function orderCreateRequestToBody(request: OrderCreateRequest) {
     table_number: request.tableNumber,
     note: request.note,
     idempotency_key: request.idempotencyKey,
-    items: request.items?.map((line) => ({
-      product_id: line.productId,
-      quantity: line.quantity,
-      discount_percent: line.discountPercent,
-    })),
+    items: request.items?.map(orderLineRequestToBody),
     customer_name: request.customerName,
     customer_phone: request.customerPhone,
     customer_email: request.customerEmail,
@@ -170,11 +184,7 @@ function offlineOrderSyncRequestToBody(request: OfflineOrderSyncRequest) {
     table_number: request.tableNumber,
     note: request.note,
     idempotency_key: request.idempotencyKey,
-    items: request.items.map((line) => ({
-      product_id: line.productId,
-      quantity: line.quantity,
-      discount_percent: line.discountPercent,
-    })),
+    items: request.items.map(orderLineRequestToBody),
     customer_name: request.customerName,
     customer_phone: request.customerPhone,
     customer_email: request.customerEmail,
@@ -287,21 +297,18 @@ export const billingService = {
     };
   },
 
-  /** Sets `request.productId`'s line to `request.quantity` (adds the line if it doesn't exist yet), optionally with its own discount — only accepted while the order is still `pending`. */
+  /** For a catalog line (`productId` set), sets that product's line to `request.quantity` (adds the line if it doesn't exist yet). For an ad-hoc line (`name`+`unitPrice` set instead), always appends a new line. Only accepted while the order is still `pending`. */
   async addItem(orderId: string, request: OrderItemRequest): Promise<Order> {
     const raw = await unwrap<OrderRaw>(
-      apiClient.post(`/tenant/orders/${orderId}/items/`, {
-        product_id: request.productId,
-        quantity: request.quantity,
-        discount_percent: request.discountPercent,
-      }),
+      apiClient.post(`/tenant/orders/${orderId}/items/`, orderLineRequestToBody(request)),
     );
     return mapOrder(raw);
   },
 
-  async removeItem(orderId: string, productId: string): Promise<Order> {
+  /** Removes one line by its own id (not `productId` — an ad-hoc line has no product, and an order may hold more than one). */
+  async removeItem(orderId: string, itemId: string): Promise<Order> {
     const raw = await unwrap<OrderRaw>(
-      apiClient.delete(`/tenant/orders/${orderId}/items/`, { data: { product_id: productId } }),
+      apiClient.delete(`/tenant/orders/${orderId}/items/`, { data: { item_id: itemId } }),
     );
     return mapOrder(raw);
   },

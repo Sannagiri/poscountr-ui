@@ -412,10 +412,14 @@ export function DashboardPage() {
     // Units sold today, by product — cancelled orders never rang up a real
     // sale, so they're excluded (everything else, including still-open
     // orders, counts what's actually gone out the door or is about to).
+    // Ad-hoc/external lines (no productId) are excluded too — this is a
+    // per-product breakdown, and we only report on what we actually stock
+    // as catalog items, same convention the backend reports use.
     const sellerTotals = new Map<string, { name: string; quantity: number; unit?: Unit }>();
     for (const order of todaysOrders) {
       if (order.status === 'cancelled') continue;
       for (const item of order.items) {
+        if (!item.productId) continue;
         const existing = sellerTotals.get(item.productId);
         const quantity = Number(item.quantity);
         if (existing) existing.quantity += quantity;

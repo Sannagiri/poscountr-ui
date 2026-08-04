@@ -145,7 +145,11 @@ function buildItemColumns(items: PurchaseOrderItem[]): ItemColumns<PurchaseOrder
       const cells = [String(index + 1), item.name];
       if (hasBatches) cells.push(item.batchNumber || '—');
       cells.push(
-        `${formatQuantity(item.quantity, item.unit as Unit)} ${item.unit}`,
+        // `unit` is `null` for an ad-hoc/external line (no catalog Product
+        // behind it) — just the bare quantity then, no unit suffix.
+        item.unit
+          ? `${formatQuantity(item.quantity, item.unit as Unit)} ${item.unit}`
+          : formatQuantity(item.quantity),
         formatRate(item.gstRate),
         money(item.purchasePrice, { bare: true }),
       );

@@ -3,6 +3,7 @@
  * `import { Button, Card } from '@/components'` over deep-importing each
  * component's folder (docs/coding-standards.md §24).
  */
+export * from './AddAdhocLineModal';
 export * from './AvatarStack';
 export * from './Badge';
 export * from './Breadcrumb';

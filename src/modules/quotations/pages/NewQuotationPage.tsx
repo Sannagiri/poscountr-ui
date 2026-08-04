@@ -3,7 +3,9 @@ import { Controller, useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import { ListOrdered, Minus, Plus, Trash2 } from 'lucide-react';
 
+import type { AddAdhocLineValues } from '@/components';
 import {
+  AddAdhocLineModal,
   Button,
   Card,
   EmptyState,
@@ -33,11 +35,33 @@ import { quotationCreateSchema } from '../validations/quotation.validation';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
 
-interface CartLine {
-  product: Product;
-  quantity: number;
-  /** This line's own discount (0-100), layered under the quotation-level discount below — set inline in the cart, defaults to the product's effective default. */
-  discountPercent: number;
+/**
+ * A catalog line (`kind: 'product'`, keyed by `product.id`) or an ad-hoc/
+ * external one-time line (`kind: 'adhoc'`, keyed by a locally-generated
+ * `key`) — same shape `NewOrderPage`'s own `CartLine` union follows.
+ */
+type CartLine =
+  | { kind: 'product'; product: Product; quantity: number; discountPercent: number }
+  | {
+      kind: 'adhoc';
+      key: string;
+      name: string;
+      unitPrice: string;
+      gstRate: string;
+      quantity: number;
+      discountPercent: number;
+    };
+
+function lineKey(line: CartLine): string {
+  return line.kind === 'product' ? line.product.id : line.key;
+}
+
+function lineName(line: CartLine): string {
+  return line.kind === 'product' ? line.product.name : line.name;
+}
+
+function lineUnitPrice(line: CartLine): string {
+  return line.kind === 'product' ? line.product.effectiveSellingPrice : line.unitPrice;
 }
 
 /**
@@ -53,11 +77,9 @@ type NewQuotationSelection = Pick<
   'businessId' | 'locationId' | 'orderType'
 >;
 
-/** This line's own price after its own discount — `effectiveSellingPrice` (the location-resolved price, falling back to the master price when there's no override) is tax-inclusive, same as `NewOrderPage`'s own `lineEstimate`. */
+/** This line's own price after its own discount — a product's `effectiveSellingPrice` and an ad-hoc line's typed-in `unitPrice` are both tax-inclusive, same as `NewOrderPage`'s own `lineEstimate`. */
 function lineEstimate(line: CartLine): number {
-  return (
-    line.quantity * Number(line.product.effectiveSellingPrice) * (1 - line.discountPercent / 100)
-  );
+  return line.quantity * Number(lineUnitPrice(line)) * (1 - line.discountPercent / 100);
 }
 
 /**
@@ -95,6 +117,7 @@ export function NewQuotationPage() {
   const locationsQuery = useLocations({ enabled: isTenantAdmin });
 
   const [cart, setCart] = useState<Record<string, CartLine>>({});
+  const [adhocModalOpen, setAdhocModalOpen] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const [quotationDiscountPercent, setQuotationDiscountPercent] = useState('0');
 
@@ -207,7 +230,8 @@ export function NewQuotationPage() {
         });
         return;
       }
-      const currentQty = cart[product.id]?.quantity ?? 0;
+      const existingLine = cart[product.id];
+      const currentQty = existingLine?.kind === 'product' ? existingLine.quantity : 0;
       if (currentQty + 1 > available) {
         showToast({ tone: 'warning', message: `Only ${available} of '${product.name}' in stock.` });
         return;
@@ -215,47 +239,71 @@ export function NewQuotationPage() {
     }
     setCart((prev) => {
       const existing = prev[product.id];
+      const existingQuantity = existing?.kind === 'product' ? existing.quantity : 0;
+      const existingDiscount = existing?.kind === 'product' ? existing.discountPercent : undefined;
       return {
         ...prev,
         [product.id]: {
+          kind: 'product',
           product,
-          quantity: (existing?.quantity ?? 0) + 1,
-          discountPercent:
-            existing?.discountPercent ?? Number(product.effectiveDiscountPercent || 0),
+          quantity: existingQuantity + 1,
+          discountPercent: existingDiscount ?? Number(product.effectiveDiscountPercent || 0),
         },
       };
     });
   }
 
-  /** Whether the `+` stepper on an already-in-cart line may go higher — `null` (unlimited/unresolved stock) always can. */
+  /** Appends a new ad-hoc line — always a fresh cart entry, matching the backend's own "ad-hoc lines are always append-only" rule, same as `NewOrderPage`'s own `addAdhocToCart`. */
+  function addAdhocToCart(values: AddAdhocLineValues) {
+    const key = `adhoc:${crypto.randomUUID()}`;
+    setCart((prev) => ({
+      ...prev,
+      [key]: {
+        kind: 'adhoc',
+        key,
+        name: values.name,
+        unitPrice: values.price,
+        gstRate: values.gstRate || '0',
+        quantity: Number(values.quantity),
+        discountPercent: Number(values.discountPercent || 0),
+      },
+    }));
+    setAdhocModalOpen(false);
+  }
+
+  /** Whether the `+` stepper on an already-in-cart line may go higher — `null` (unlimited/unresolved stock) always can, same as an ad-hoc line (no stock concept at all). */
   function canIncreaseQuantity(line: CartLine): boolean {
+    if (line.kind === 'adhoc') return true;
     const available = getAvailableStock(line.product, cartLocationId);
     return available === null || line.quantity < available;
   }
 
-  function setQuantity(productId: string, quantity: number) {
+  function setQuantity(key: string, quantity: number) {
     setCart((prev) => {
       if (quantity <= 0) {
         const next = { ...prev };
-        delete next[productId];
+        delete next[key];
         return next;
       }
-      return { ...prev, [productId]: { ...prev[productId], quantity } };
+      const existing = prev[key];
+      if (!existing) return prev;
+      return { ...prev, [key]: { ...existing, quantity } };
     });
   }
 
-  function setItemDiscountPercent(productId: string, discountPercent: number) {
+  function setItemDiscountPercent(key: string, discountPercent: number) {
     setCart((prev) => {
-      if (!prev[productId]) return prev;
+      const existing = prev[key];
+      if (!existing) return prev;
       const clamped = Math.min(100, Math.max(0, discountPercent || 0));
-      return { ...prev, [productId]: { ...prev[productId], discountPercent: clamped } };
+      return { ...prev, [key]: { ...existing, discountPercent: clamped } };
     });
   }
 
-  function removeFromCart(productId: string) {
+  function removeFromCart(key: string) {
     setCart((prev) => {
       const next = { ...prev };
-      delete next[productId];
+      delete next[key];
       return next;
     });
   }
@@ -273,11 +321,21 @@ export function NewQuotationPage() {
         customerGstin: values.customerGstin || undefined,
         customerState: values.customerState || undefined,
         discountPercent: quotationDiscountPercent || '0',
-        items: cartLines.map((line): QuotationLineRequest => ({
-          productId: line.product.id,
-          quantity: String(line.quantity),
-          discountPercent: String(line.discountPercent || 0),
-        })),
+        items: cartLines.map((line): QuotationLineRequest =>
+          line.kind === 'product'
+            ? {
+                productId: line.product.id,
+                quantity: String(line.quantity),
+                discountPercent: String(line.discountPercent || 0),
+              }
+            : {
+                name: line.name,
+                unitPrice: line.unitPrice,
+                gstRate: line.gstRate,
+                quantity: String(line.quantity),
+                discountPercent: String(line.discountPercent || 0),
+              },
+        ),
       }),
     onSuccess: (quotation) => {
       showToast({ tone: 'success', message: 'Quotation created.' });
@@ -349,12 +407,23 @@ export function NewQuotationPage() {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-4">
             <Card className="flex min-h-0 flex-1 flex-col">
-              <div className="mb-3 shrink-0">
-                <SearchInput
-                  value={productSearch}
-                  onChange={(event) => setProductSearch(event.target.value)}
-                  placeholder="Search products by name or SKU…"
-                />
+              <div className="mb-3 flex shrink-0 items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <SearchInput
+                    value={productSearch}
+                    onChange={(event) => setProductSearch(event.target.value)}
+                    placeholder="Search products by name or SKU…"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="h-10 shrink-0"
+                  onClick={() => setAdhocModalOpen(true)}
+                >
+                  + Custom line
+                </Button>
               </div>
               {isTenantAdmin && !selectedBusinessId ? (
                 <EmptyState
@@ -438,20 +507,25 @@ export function NewQuotationPage() {
                         const canIncrease = canIncreaseQuantity(line);
                         return (
                           <div
-                            key={line.product.id}
+                            key={lineKey(line)}
                             className="flex flex-col gap-1.5 rounded-control border border-border/60 p-2"
                           >
                             <div className="flex items-start gap-2">
                               <div className="min-w-0 flex-1">
                                 <p className="truncate text-sm font-medium text-ink">
-                                  {line.product.name}
+                                  {lineName(line)}
+                                  {line.kind === 'adhoc' ? (
+                                    <span className="ml-1.5 text-[10px] font-normal uppercase tracking-wide text-ink-faint">
+                                      Custom
+                                    </span>
+                                  ) : null}
                                 </p>
                                 <p className="text-xs text-ink-faint">
-                                  ₹{line.product.effectiveSellingPrice} × {line.quantity}
+                                  ₹{lineUnitPrice(line)} × {line.quantity}
                                   {line.discountPercent > 0 ? ` − ${line.discountPercent}%` : ''} =
                                   ₹{lineEstimate(line).toFixed(2)}
                                 </p>
-                                {!canIncrease ? (
+                                {line.kind === 'product' && !canIncrease ? (
                                   <p className="text-[11px] font-medium text-warning-text">
                                     Max in stock reached
                                   </p>
@@ -461,7 +535,7 @@ export function NewQuotationPage() {
                                 <button
                                   type="button"
                                   aria-label="Decrease quantity"
-                                  onClick={() => setQuantity(line.product.id, line.quantity - 1)}
+                                  onClick={() => setQuantity(lineKey(line), line.quantity - 1)}
                                   className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-ink-soft hover:bg-surface"
                                 >
                                   <Minus size={12} />
@@ -472,7 +546,7 @@ export function NewQuotationPage() {
                                 <button
                                   type="button"
                                   aria-label="Increase quantity"
-                                  onClick={() => setQuantity(line.product.id, line.quantity + 1)}
+                                  onClick={() => setQuantity(lineKey(line), line.quantity + 1)}
                                   disabled={!canIncrease}
                                   className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-ink-soft hover:bg-surface disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                                 >
@@ -481,7 +555,7 @@ export function NewQuotationPage() {
                                 <button
                                   type="button"
                                   aria-label="Remove from cart"
-                                  onClick={() => removeFromCart(line.product.id)}
+                                  onClick={() => removeFromCart(lineKey(line))}
                                   className="ml-1 flex h-6 w-6 items-center justify-center rounded-full text-ink-faint hover:bg-danger-bg hover:text-danger"
                                 >
                                   <Trash2 size={12} />
@@ -491,22 +565,19 @@ export function NewQuotationPage() {
                             <div className="flex items-center gap-1.5">
                               <label
                                 className="text-[11px] text-ink-faint"
-                                htmlFor={`item-discount-${line.product.id}`}
+                                htmlFor={`item-discount-${lineKey(line)}`}
                               >
                                 Item discount
                               </label>
                               <input
-                                id={`item-discount-${line.product.id}`}
+                                id={`item-discount-${lineKey(line)}`}
                                 type="number"
                                 min={0}
                                 max={100}
                                 inputMode="decimal"
                                 value={line.discountPercent || ''}
                                 onChange={(event) =>
-                                  setItemDiscountPercent(
-                                    line.product.id,
-                                    Number(event.target.value),
-                                  )
+                                  setItemDiscountPercent(lineKey(line), Number(event.target.value))
                                 }
                                 onWheel={preventNumberInputScroll}
                                 placeholder="0"
@@ -627,6 +698,13 @@ export function NewQuotationPage() {
           </div>
         </div>
       </div>
+
+      <AddAdhocLineModal
+        open={adhocModalOpen}
+        onClose={() => setAdhocModalOpen(false)}
+        priceLabel="Unit price"
+        onSubmit={addAdhocToCart}
+      />
     </div>
   );
 }

@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Eye, ListOrdered, MessageCircle, Printer, Trash2 } from 'lucide-react';
 
-import type { DataTableColumn, DataTableRowAction } from '@/components';
+import type { AddAdhocLineValues, DataTableColumn, DataTableRowAction } from '@/components';
 import {
+  AddAdhocLineModal,
   Badge,
   Button,
   Card,
@@ -138,6 +139,7 @@ export function OrderDetailPage() {
   );
 
   const [addItemSearch, setAddItemSearch] = useState('');
+  const [adhocModalOpen, setAdhocModalOpen] = useState(false);
   const [pendingCancel, setPendingCancel] = useState(false);
   const [showBillPreview, setShowBillPreview] = useState(false);
   // Completion needs a payment method (+ optional discount) before it can
@@ -281,7 +283,7 @@ export function OrderDetailPage() {
   }
 
   const removeItemMutation = useMutation({
-    mutationFn: (productId: string) => billingService.removeItem(orderId as string, productId),
+    mutationFn: (itemId: string) => billingService.removeItem(orderId as string, itemId),
     onSuccess: invalidateOrder,
     onError: (error) => showToast({ tone: 'danger', message: describeApiError(error) }),
   });
@@ -317,7 +319,7 @@ export function OrderDetailPage() {
         header: 'Qty',
         width: '110px',
         render: (item) => {
-          const product = productById.get(item.productId);
+          const product = item.productId ? productById.get(item.productId) : undefined;
           const available = product ? getAvailableStock(product, order?.locationId) : null;
           const short = available !== null && Number(item.quantity) > available;
           return (
@@ -442,13 +444,26 @@ export function OrderDetailPage() {
     });
   }
 
+  function handleAddAdhocLine(values: AddAdhocLineValues) {
+    addItemMutation.mutate(
+      {
+        name: values.name,
+        unitPrice: values.price,
+        quantity: values.quantity,
+        gstRate: values.gstRate || undefined,
+        discountPercent: values.discountPercent || undefined,
+      },
+      { onSuccess: () => setAdhocModalOpen(false) },
+    );
+  }
+
   function getItemRowActions(item: OrderItem): DataTableRowAction<OrderItem>[] {
     return [
       {
         label: 'Remove item',
         icon: Trash2,
         destructive: true,
-        onSelect: () => removeItemMutation.mutate(item.productId),
+        onSelect: () => removeItemMutation.mutate(item.id),
         disabled: () => removeItemMutation.isPending,
       },
     ];
@@ -572,9 +587,14 @@ export function OrderDetailPage() {
 
             {canEditItems ? (
               <div className="mt-4 border-t border-border pt-4">
-                <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                  Add a product
-                </p>
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">
+                    Add a product
+                  </p>
+                  <Button variant="secondary" size="sm" onClick={() => setAdhocModalOpen(true)}>
+                    + Add custom line
+                  </Button>
+                </div>
                 <div>
                   <SearchInput
                     value={addItemSearch}
@@ -812,6 +832,15 @@ export function OrderDetailPage() {
       <OrderBillPreviewModal
         order={showBillPreview ? order : null}
         onClose={() => setShowBillPreview(false)}
+      />
+
+      <AddAdhocLineModal
+        open={adhocModalOpen}
+        onClose={() => setAdhocModalOpen(false)}
+        priceLabel="Unit price"
+        onSubmit={handleAddAdhocLine}
+        isSubmitting={addItemMutation.isPending}
+        error={addItemMutation.error ? describeApiError(addItemMutation.error) : null}
       />
 
       <Modal
