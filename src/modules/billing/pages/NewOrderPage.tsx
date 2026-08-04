@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
-import { ListOrdered, MapPin, Minus, Plus, Trash2 } from 'lucide-react';
+import { ListOrdered, MapPin, Minus, Plus, Printer, Trash2 } from 'lucide-react';
 
 import {
   Badge,
@@ -46,6 +46,7 @@ import {
   PAYMENT_METHOD_OPTIONS,
 } from '../constants/billing.constants';
 import { useAutoSelectSingle } from '../hooks/useAutoSelectSingle';
+import { useOrderBill } from '../hooks/useOrderBill';
 import { billingService } from '../services/billingService';
 import type {
   OfflineOrderSyncRequest,
@@ -512,6 +513,25 @@ export function NewOrderPage() {
   const [paymentStep, setPaymentStep] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [amountTendered, setAmountTendered] = useState('');
+
+  // Print the bill straight from this modal, before payment is even taken —
+  // `printBill` (`useOrderBill.ts`) works for a still-`pending` order via a
+  // never-persisted draft preview (real GST split, no real invoice number
+  // burned), same as `OrderDetailPage`'s own "Preview bill" now does.
+  const { printBill } = useOrderBill();
+  const [isPrintingBill, setIsPrintingBill] = useState(false);
+
+  async function handlePrintBill() {
+    if (!pendingOrder) return;
+    setIsPrintingBill(true);
+    try {
+      await printBill(pendingOrder);
+    } catch (error) {
+      showToast({ tone: 'danger', message: describeApiError(error) });
+    } finally {
+      setIsPrintingBill(false);
+    }
+  }
 
   // Scan-to-cart: resolves a scanned/typed code against the same product
   // lookup the general "scan for details" flow uses, then feeds the result
@@ -1138,6 +1158,14 @@ export function NewOrderPage() {
         footer={
           paymentStep ? (
             <>
+              <Button
+                variant="secondary"
+                leadingIcon={<Printer size={16} />}
+                isLoading={isPrintingBill}
+                onClick={handlePrintBill}
+              >
+                Print bill
+              </Button>
               <Button variant="secondary" onClick={() => setPaymentStep(false)}>
                 Back
               </Button>
@@ -1176,9 +1204,27 @@ export function NewOrderPage() {
                   Completed
                 </Button>
               </div>
+              <Button
+                variant="secondary"
+                leadingIcon={<Printer size={16} />}
+                isLoading={isPrintingBill}
+                onClick={handlePrintBill}
+              >
+                Print bill
+              </Button>
             </div>
           ) : (
-            <Button onClick={() => setPaymentStep(true)}>Take payment</Button>
+            <>
+              <Button
+                variant="secondary"
+                leadingIcon={<Printer size={16} />}
+                isLoading={isPrintingBill}
+                onClick={handlePrintBill}
+              >
+                Print bill
+              </Button>
+              <Button onClick={() => setPaymentStep(true)}>Take payment</Button>
+            </>
           )
         }
       >

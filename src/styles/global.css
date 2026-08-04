@@ -78,7 +78,28 @@
   }
 
   body {
-    @apply bg-surface font-sans text-ink antialiased transition-colors duration-200;
+    @apply bg-surface font-sans text-ink antialiased;
+  }
+
+  /**
+   * Every element gets the same short color transition — not just `body`.
+   * Toggling `.dark` swaps the CSS variables above instantly; a transition
+   * only animates on whichever element actually declares one, so without
+   * this every card/input/border/badge would snap to its new color in the
+   * same frame while only `body` faded, which reads as flicker (a few
+   * things visibly lagging behind everything else that already jumped). One
+   * `transition-property` list scoped to `*` keeps every themed element in
+   * lockstep. Deliberately not `transition: all` — that would also animate
+   * layout/transform properties on every hover/focus/open-close interaction
+   * app-wide, not just the theme swap. Kept inside `@layer base` (not left
+   * unlayered) so a component's own explicit `duration-*`/`ease-*` utility
+   * — living in Tailwind's `utilities` layer, which wins over `base` — can
+   * still override this default per element, same as any other base style.
+   */
+  * {
+    transition-property: background-color, border-color, color, fill, stroke;
+    transition-duration: 150ms;
+    transition-timing-function: ease;
   }
 
   ::selection {

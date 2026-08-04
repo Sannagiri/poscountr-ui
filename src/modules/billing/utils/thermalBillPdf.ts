@@ -610,14 +610,18 @@ export async function buildThermalBillPdf(input: ThermalBillInput): Promise<Blob
 
   // Second tear-off in the same print job — a business with `kotReceiptEnabled`
   // wants the kitchen ticket printed right after the customer bill, not as a
-  // separate manual print action. Sized to its OWN content, same as the bill
-  // page — it always carries less than the bill (same items, no totals/tax/
-  // business-details/notes), so matching the bill's height instead would
-  // print several extra centimeters of blank paper on every single order.
+  // separate manual print action. Same page size as the bill page above —
+  // this was briefly sized to its own (shorter) content instead to save
+  // paper, but a real print pipeline that doesn't recognize this custom
+  // small page size (falls back to a standard sheet like Letter, then
+  // "fit to paper" scales each page independently) stretches two
+  // differently-sized pages by two different factors, so the KOT page came
+  // out visibly misaligned with the bill instead of matching it. Matching
+  // dimensions removes that inconsistency regardless of how any given
+  // print pipeline handles a non-native page size.
   if (input.includeKotSlip) {
     const kotBlocks = buildKotBlocks(measure, contentWidthMm, input);
-    const kotHeightMm = MARGIN_MM * 2 + contentHeightMm(kotBlocks);
-    doc.addPage([widthMm, kotHeightMm], orientationFor(widthMm, kotHeightMm));
+    doc.addPage([widthMm, heightMm], orientationFor(widthMm, heightMm));
     renderBlocksOnPage(doc, kotBlocks, widthMm, fontSizePt, rowFontSizePt, titleFontSizePt);
   }
 

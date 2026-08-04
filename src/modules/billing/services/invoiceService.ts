@@ -24,6 +24,21 @@ export const invoiceService = {
     return mapInvoice(raw);
   },
 
+  /**
+   * A never-persisted invoice preview for an order of ANY status — unlike
+   * `generateInvoice` (completed-only, allocates a real sequential number
+   * and writes a row), this recomputes the GST tax split fresh on every
+   * call and burns nothing. `invoiceNumber` comes back as `"DRAFT"`. Used
+   * to print/preview a bill before an order is actually completed (New
+   * Order's post-create modal, the Orders list's direct-print action).
+   */
+  async previewInvoice(orderId: string): Promise<Invoice> {
+    const raw = await unwrap<InvoiceRaw>(
+      apiClient.get(`/tenant/orders/${orderId}/invoice-preview/`),
+    );
+    return mapInvoice(raw);
+  },
+
   /** Attaches a client-rendered PDF to an invoice, storing it in S3 (field name `pdf`, matching `InvoicePdfUploadView`). */
   async uploadInvoicePdf(invoiceId: string, file: File): Promise<Invoice> {
     const formData = new FormData();

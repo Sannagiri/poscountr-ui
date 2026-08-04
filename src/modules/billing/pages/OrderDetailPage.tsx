@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Eye, ListOrdered, MessageCircle, Trash2 } from 'lucide-react';
+import { Eye, ListOrdered, MessageCircle, Printer, Trash2 } from 'lucide-react';
 
 import type { DataTableColumn, DataTableRowAction } from '@/components';
 import {
@@ -113,7 +113,20 @@ export function OrderDetailPage() {
   // for the order to load rather than firing once unscoped and once
   // location-scoped a moment later.
   const productsQuery = useProducts(order?.locationId, { enabled: Boolean(order) });
-  const { ensureBillUploaded } = useOrderBill();
+  const { ensureBillUploaded, printBill } = useOrderBill();
+  const [isPrintingBill, setIsPrintingBill] = useState(false);
+
+  async function handlePrintBill() {
+    if (!order) return;
+    setIsPrintingBill(true);
+    try {
+      await printBill(order);
+    } catch (error) {
+      showToast({ tone: 'danger', message: describeApiError(error) });
+    } finally {
+      setIsPrintingBill(false);
+    }
+  }
   // Cross-references an already-placed line's `productId` against this same
   // fetch's stock numbers — `OrderItem` itself carries no stock field (it's
   // a server-echoed price/qty snapshot), so this is the only way to flag a
@@ -641,19 +654,27 @@ export function OrderDetailPage() {
                     {TRANSITION_ACTION_LABELS[nextTarget]}
                   </Button>
                 ) : null}
-                {/* The order is "locked" — no more status transitions — the
-                    moment it's completed, which is also the only status the
-                    backend allows generating an invoice for (any type: dine-in,
-                    takeaway, delivery alike), so Preview bill appears here too. */}
-                {order.status === 'completed' ? (
-                  <Button
-                    variant="secondary"
-                    leadingIcon={<Eye size={16} />}
-                    onClick={() => setShowBillPreview(true)}
-                  >
-                    Preview bill
-                  </Button>
-                ) : null}
+                {/* Available at every status, not just `completed` —
+                    `useOrderBill.ts`'s `previewBill` falls back to a
+                    never-persisted draft preview (real GST split, no real
+                    invoice number burned) for anything short of completed,
+                    so there's no need to wait for the order to finish
+                    before seeing/printing what the bill will look like. */}
+                <Button
+                  variant="secondary"
+                  leadingIcon={<Eye size={16} />}
+                  onClick={() => setShowBillPreview(true)}
+                >
+                  Preview bill
+                </Button>
+                <Button
+                  variant="secondary"
+                  leadingIcon={<Printer size={16} />}
+                  isLoading={isPrintingBill}
+                  onClick={handlePrintBill}
+                >
+                  Print bill
+                </Button>
                 {order.status === 'completed' ? (
                   <Button
                     variant="secondary"

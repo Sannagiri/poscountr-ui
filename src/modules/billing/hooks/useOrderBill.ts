@@ -141,10 +141,18 @@ export function useOrderBill() {
 
   /**
    * For the "preview this order's bill later" flow (e.g. from the Orders
-   * table, after completion) — always regenerates a fresh blob rather than
-   * opening the stored `pdfUrl` directly, so the preview modal's iframe/
-   * download/print all work from one same-origin `blob:` URL with no
-   * cross-origin restrictions to fight (same reasoning as the logo proxy).
+   * table) — always regenerates a fresh blob rather than opening the stored
+   * `pdfUrl` directly, so the preview modal's iframe/download/print all work
+   * from one same-origin `blob:` URL with no cross-origin restrictions to
+   * fight (same reasoning as the logo proxy).
+   *
+   * Works for an order of ANY status, not just `completed` — a still-
+   * `pending`/kitchen-flow order has no real generated invoice yet, so this
+   * falls back to `invoiceService.previewInvoice` (never persisted, GST
+   * split recomputed fresh, `invoiceNumber: 'DRAFT'`) instead of
+   * `generateInvoice` (which would hard-fail with a 400 for anything short
+   * of `completed`). The rest of the render pipeline (`buildBillBlob`)
+   * doesn't care which path produced its `Invoice`-shaped input.
    *
    * `layoutOverride` is the layout-switcher's on-the-fly choice — omit for
    * the effective (business/global/system default) layout.
@@ -154,14 +162,71 @@ export function useOrderBill() {
       order: Order,
       layoutOverride?: LayoutConfig,
     ): Promise<{ invoice: Invoice; blob: Blob }> => {
-      const invoice = await invoiceService.generateInvoice(order.id);
+      const invoice =
+        order.status === 'completed'
+          ? await invoiceService.generateInvoice(order.id)
+          : await invoiceService.previewInvoice(order.id);
       const blob = await buildBillBlob(order, invoice, layoutOverride);
       return { invoice, blob };
     },
     [],
   );
 
-  return { ensureBillUploaded, previewBill };
+  /**
+   * One click, no modal: builds the bill (real invoice if `completed`,
+   * draft preview otherwise, via `previewBill` above) and sends it straight
+   * to the browser's print dialog through a hidden iframe — same mechanism
+   * `OrderBillPreviewModal`'s own Print button uses
+   * (`contentWindow.print()`), just without a visible preview step first.
+   * For the Orders list's direct-print icon and the New Order payment
+   * modal's "Print bill" action, where the point is speed, not review.
+   */
+  const printBill = useCallback(
+    async (order: Order, layoutOverride?: LayoutConfig): Promise<void> => {
+      const { blob } = await previewBill(order, layoutOverride);
+      printPdfBlob(blob);
+    },
+    [previewBill],
+  );
+
+  return { ensureBillUploaded, previewBill, printBill };
+}
+
+/**
+ * Prints a PDF blob directly via a hidden iframe — no visible modal/tab.
+ * The iframe stays in the DOM (off-screen) until the browser's own
+ * `afterprint` event fires on it (or a generous fallback timeout, in case
+ * a browser never fires it for an iframe-hosted print), since removing it
+ * — or revoking the blob URL — too early can silently cancel the print job
+ * in some browsers.
+ */
+function printPdfBlob(blob: Blob): void {
+  const url = URL.createObjectURL(blob);
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  iframe.setAttribute('aria-hidden', 'true');
+
+  function cleanup() {
+    iframe.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  iframe.onload = () => {
+    const win = iframe.contentWindow;
+    if (!win) {
+      cleanup();
+      return;
+    }
+    win.addEventListener('afterprint', cleanup, { once: true });
+    win.print();
+    setTimeout(cleanup, 60000);
+  };
+
+  iframe.src = url;
+  document.body.appendChild(iframe);
 }
 
 export { billFilename };

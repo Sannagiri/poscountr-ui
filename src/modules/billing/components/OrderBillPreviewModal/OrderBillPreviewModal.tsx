@@ -115,22 +115,31 @@ export function OrderBillPreviewModal({ order, onClose }: OrderBillPreviewModalP
     onError: (error) => showToast({ tone: 'danger', message: describeApiError(error) }),
   });
 
+  // A pending order's "invoice" is `previewBill`'s never-persisted draft
+  // (see `useOrderBill.ts` — `invoiceNumber: 'DRAFT'`, `id` a fresh
+  // in-memory UUID with no matching database row). Permanently pinning a
+  // layout to it via `setInvoiceLayout` would 404 against that id, so the
+  // picker only makes sense once a real invoice exists — the printed
+  // preview itself already shows "DRAFT" on the Bill No line either way.
+  const isDraft = state?.invoice.invoiceNumber === 'DRAFT';
+
   const effective = effectiveQuery.data;
   const layoutValue = state
     ? (state.invoice.layoutTemplateId ?? FOLLOW_BUSINESS_DEFAULT_VALUE)
     : undefined;
-  const layoutOptions = effective
-    ? [
-        {
-          value: FOLLOW_BUSINESS_DEFAULT_VALUE,
-          label: `Follow business default${effective.layout ? ` (${effective.layout.name})` : ''}`,
-        },
-        ...effective.alternatives.map((alternative) => ({
-          value: alternative.id,
-          label: `${alternative.name}${alternative.isGlobal ? ' (Global)' : ''}`,
-        })),
-      ]
-    : [];
+  const layoutOptions =
+    effective && !isDraft
+      ? [
+          {
+            value: FOLLOW_BUSINESS_DEFAULT_VALUE,
+            label: `Follow business default${effective.layout ? ` (${effective.layout.name})` : ''}`,
+          },
+          ...effective.alternatives.map((alternative) => ({
+            value: alternative.id,
+            label: `${alternative.name}${alternative.isGlobal ? ' (Global)' : ''}`,
+          })),
+        ]
+      : [];
 
   function handleLayoutChange(next: string) {
     if (!state || next === layoutValue) return;

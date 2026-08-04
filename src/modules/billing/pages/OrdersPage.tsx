@@ -1,15 +1,25 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText } from 'lucide-react';
+import { Eye, Printer } from 'lucide-react';
 
 import type { DataTableColumn, DataTableFilter } from '@/components';
-import { Badge, Button, Card, DataTable, DatePicker, PageHeader, Select } from '@/components';
+import {
+  Badge,
+  Button,
+  Card,
+  DataTable,
+  DatePicker,
+  PageHeader,
+  Select,
+  useToast,
+} from '@/components';
 import { dateIST, formatTimestamp } from '@/utils/date';
 import { describeApiError } from '@/utils/errors';
 import { statusLabel, toneForStatus } from '@/utils/status';
 
 import { OrderBillPreviewModal } from '../components/OrderBillPreviewModal';
 import { BILLING_ROUTES, ORDER_TYPE_OPTIONS } from '../constants/billing.constants';
+import { useOrderBill } from '../hooks/useOrderBill';
 import { useOrders } from '../hooks/useOrders';
 import type { Order, OrderStatus, OrderType } from '../types/billing.types';
 
@@ -76,8 +86,25 @@ function getOrderSearchValue(order: Order): string {
  */
 export function OrdersPage() {
   const navigate = useNavigate();
+  const { showToast } = useToast();
+  const { printBill } = useOrderBill();
   const ordersQuery = useOrders();
+  const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
   const [previewOrder, setPreviewOrder] = useState<Order | null>(null);
+
+  const handlePrint = useCallback(
+    async (order: Order) => {
+      setPrintingOrderId(order.id);
+      try {
+        await printBill(order);
+      } catch (error) {
+        showToast({ tone: 'danger', message: describeApiError(error) });
+      } finally {
+        setPrintingOrderId(null);
+      }
+    },
+    [printBill, showToast],
+  );
 
   const [datePreset, setDatePreset] = useState<DatePreset>('week');
   const [specificDate, setSpecificDate] = useState(() => dateIST());
@@ -168,27 +195,39 @@ export function OrdersPage() {
       {
         key: 'bill',
         header: 'Bill',
+        // Two `size="sm"` icon-only ghost buttons (40px each) + a 4px gap
+        // need ~84px of content width; the cell's own `px-3` padding
+        // (`DataTable.tsx`) eats 24px off whatever this column declares, so
+        // anything under ~110px clips/crowds the second (Print) button.
         width: '110px',
         render: (row) => (
-          <Button
-            variant="ghost"
-            size="sm"
-            leadingIcon={<FileText size={14} />}
-            disabled={row.status !== 'completed'}
-            disabledReason={
-              row.status !== 'completed' ? 'Available once the order is completed' : undefined
-            }
-            onClick={(event) => {
-              event.stopPropagation();
-              setPreviewOrder(row);
-            }}
-          >
-            Preview
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Preview bill"
+              leadingIcon={<Eye size={16} />}
+              onClick={(event) => {
+                event.stopPropagation();
+                setPreviewOrder(row);
+              }}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Print bill"
+              leadingIcon={<Printer size={16} />}
+              isLoading={printingOrderId === row.id}
+              onClick={(event) => {
+                event.stopPropagation();
+                handlePrint(row);
+              }}
+            />
+          </div>
         ),
       },
     ],
-    [],
+    [printingOrderId, handlePrint],
   );
 
   const filters: DataTableFilter<Order>[] = useMemo(
@@ -238,20 +277,31 @@ export function OrdersPage() {
                 <span className="shrink-0 font-semibold text-ink">₹{row.total}</span>
               </div>
               <span className="text-xs text-ink-faint">{formatTimestamp(row.createdAt)}</span>
-              {row.status === 'completed' ? (
+              <div className="mt-1 flex items-center gap-2">
                 <Button
                   variant="ghost"
                   size="sm"
-                  leadingIcon={<FileText size={14} />}
-                  className="mt-1 self-start"
+                  leadingIcon={<Eye size={14} />}
                   onClick={(event) => {
                     event.stopPropagation();
                     setPreviewOrder(row);
                   }}
                 >
-                  Preview bill
+                  Preview
                 </Button>
-              ) : null}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  leadingIcon={<Printer size={14} />}
+                  isLoading={printingOrderId === row.id}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handlePrint(row);
+                  }}
+                >
+                  Print
+                </Button>
+              </div>
             </div>
           )}
           toolbarTrailing={
