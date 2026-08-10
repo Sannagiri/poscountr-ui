@@ -1,27 +1,17 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, Printer } from 'lucide-react';
 
-import type { DataTableColumn, DataTableFilter } from '@/components';
-import {
-  Badge,
-  Button,
-  Card,
-  DataTable,
-  DatePicker,
-  PageHeader,
-  Select,
-  useToast,
-} from '@/components';
-import { dateIST, formatTimestamp } from '@/utils/date';
+import { Button, Card, DatePicker, ListToolbar, PageHeader, Select, useToast } from '@/components';
+import { dateIST } from '@/utils/date';
 import { describeApiError } from '@/utils/errors';
-import { statusLabel, toneForStatus } from '@/utils/status';
+import { applyFilterValues, filterBySearch, hasActiveListFilters } from '@/utils/listFilter';
 
 import { OrderBillPreviewModal } from '../components/OrderBillPreviewModal';
+import { OrderListCards } from '../components/OrderListCards';
 import { BILLING_ROUTES, ORDER_TYPE_OPTIONS } from '../constants/billing.constants';
 import { useOrderBill } from '../hooks/useOrderBill';
 import { useOrders } from '../hooks/useOrders';
-import type { Order, OrderStatus, OrderType } from '../types/billing.types';
+import type { Order, OrderStatus } from '../types/billing.types';
 
 const STATUS_OPTIONS: { value: OrderStatus; label: string }[] = [
   { value: 'pending', label: 'Pending' },
@@ -32,10 +22,6 @@ const STATUS_OPTIONS: { value: OrderStatus; label: string }[] = [
   { value: 'completed', label: 'Completed' },
   { value: 'cancelled', label: 'Cancelled' },
 ];
-
-const ORDER_TYPE_LABELS: Record<OrderType, string> = Object.fromEntries(
-  ORDER_TYPE_OPTIONS.map((option) => [option.value, option.label]),
-) as Record<OrderType, string>;
 
 /**
  * When it's on, `tokenDate` is compared as a plain ISO string against the
@@ -69,20 +55,27 @@ function getOrderSearchValue(order: Order): string {
     .join(' ');
 }
 
+interface OrderFilterDef {
+  key: string;
+  label: string;
+  options: { value: string; label: string }[];
+}
+
 /**
- * Every order visible to the actor, in one flat table — manager pre-scoped
- * to their assigned location server-side, tenant_admin sees every location
- * (same scoping shape `ProductsPage` already established for products). No
- * server-side status/type/location filter is wired here since the whole
- * list is small enough to fetch once and narrow client-side via `DataTable`'s
- * built-in filters, exactly like `ProductsPage` does. The date filter below
- * follows the same client-side pattern, keyed off `tokenDate` — the same
- * IST day-boundary field the backend stamps at order-creation time (see
- * `DashboardPage`'s `dateIST()` usage for the same convention) — rather
- * than `createdAt`, so "today" always means the same day the backend meant
- * when it assigned the order its daily token number. Defaults to "Last 7
- * days" — enough of a window to actually see something on a normal shop
- * day without loading every order ever placed.
+ * Every order visible to the actor, as a compact, colorful list (see
+ * `OrderListCards`) — manager pre-scoped to their assigned location
+ * server-side, tenant_admin sees every location (same scoping shape
+ * `ProductsPage` already established for products). No server-side
+ * status/type/location filter is wired here since the whole list is small
+ * enough to fetch once and narrow client-side via `ListToolbar` +
+ * `listFilter` helpers, exactly like `TenantsPage`'s card grid does. The
+ * date filter below follows the same client-side pattern, keyed off
+ * `tokenDate` — the same IST day-boundary field the backend stamps at
+ * order-creation time (see `DashboardPage`'s `dateIST()` usage for the same
+ * convention) — rather than `createdAt`, so "today" always means the same
+ * day the backend meant when it assigned the order its daily token number.
+ * Defaults to "Last 7 days" — enough of a window to actually see something
+ * on a normal shop day without loading every order ever placed.
  */
 export function OrdersPage() {
   const navigate = useNavigate();
@@ -91,6 +84,9 @@ export function OrdersPage() {
   const ordersQuery = useOrders();
   const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
   const [previewOrder, setPreviewOrder] = useState<Order | null>(null);
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
 
   const handlePrint = useCallback(
     async (order: Order) => {
@@ -142,169 +138,49 @@ export function OrdersPage() {
     return Array.from(seen, ([value, label]) => ({ value, label }));
   }, [ordersQuery.data]);
 
-  const columns: DataTableColumn<Order>[] = useMemo(
-    () => [
-      {
-        key: 'orderNumber',
-        header: 'Order #',
-        width: '110px',
-        render: (row) => row.orderNumber ?? '—',
-      },
-      {
-        key: 'customerName',
-        header: 'Customer',
-        width: '1.3fr',
-        render: (row) => (
-          <span className="flex flex-col">
-            <span className="truncate font-medium">{row.customerName || 'Walk-in'}</span>
-            <span className="truncate text-xs text-ink-faint">{row.customerPhone}</span>
-          </span>
-        ),
-      },
-      {
-        key: 'tokenNumber',
-        header: 'Token / Table',
-        width: '120px',
-        render: (row) => row.tokenNumber ?? (row.tableNumber || '—'),
-      },
-      {
-        key: 'orderType',
-        header: 'Type',
-        width: '110px',
-        render: (row) => ORDER_TYPE_LABELS[row.orderType],
-      },
-      { key: 'locationName', header: 'Location', width: '1fr' },
-      {
-        key: 'status',
-        header: 'Status',
-        width: '130px',
-        render: (row) => <Badge tone={toneForStatus(row.status)}>{statusLabel(row.status)}</Badge>,
-      },
-      {
-        key: 'total',
-        header: 'Total',
-        width: '100px',
-        render: (row) => `₹${row.total}`,
-      },
-      {
-        key: 'createdAt',
-        header: 'Created',
-        width: '180px',
-        render: (row) => formatTimestamp(row.createdAt),
-      },
-      {
-        key: 'bill',
-        header: 'Bill',
-        // Two `size="sm"` icon-only ghost buttons (40px each) + a 4px gap
-        // need ~84px of content width; the cell's own `px-3` padding
-        // (`DataTable.tsx`) eats 24px off whatever this column declares, so
-        // anything under ~110px clips/crowds the second (Print) button.
-        width: '110px',
-        render: (row) => (
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Preview bill"
-              leadingIcon={<Eye size={16} />}
-              onClick={(event) => {
-                event.stopPropagation();
-                setPreviewOrder(row);
-              }}
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Print bill"
-              leadingIcon={<Printer size={16} />}
-              isLoading={printingOrderId === row.id}
-              onClick={(event) => {
-                event.stopPropagation();
-                handlePrint(row);
-              }}
-            />
-          </div>
-        ),
-      },
-    ],
-    [printingOrderId, handlePrint],
-  );
-
-  const filters: DataTableFilter<Order>[] = useMemo(
+  const filters: OrderFilterDef[] = useMemo(
     () => [
       { key: 'status', label: 'Status', options: STATUS_OPTIONS },
-      {
-        key: 'orderType',
-        label: 'Type',
-        options: ORDER_TYPE_OPTIONS,
-      },
+      { key: 'orderType', label: 'Type', options: ORDER_TYPE_OPTIONS },
       { key: 'locationId', label: 'Location', options: locationFilterOptions },
     ],
     [locationFilterOptions],
   );
+
+  const toolbarFilters = useMemo(
+    () =>
+      filters.map((filter) => ({
+        key: filter.key,
+        label: filter.label,
+        value: filterValues[filter.key] ?? 'all',
+        onChange: (value: string) => setFilterValues((prev) => ({ ...prev, [filter.key]: value })),
+        options: filter.options,
+      })),
+    [filters, filterValues],
+  );
+  const hasActiveFilters = hasActiveListFilters(searchTerm, filterValues);
+  const filteredOrders = useMemo(() => {
+    const searched = filterBySearch(dateFilteredOrders, searchTerm, getOrderSearchValue);
+    return applyFilterValues(searched, filters, filterValues);
+  }, [dateFilteredOrders, searchTerm, filters, filterValues]);
+  function clearFilters() {
+    setSearchTerm('');
+    setFilterValues({});
+  }
 
   return (
     <div>
       <PageHeader title="Orders" subtitle="Every order across your locations, in one place" />
 
       <Card>
-        <DataTable
-          columns={columns}
-          data={dateFilteredOrders}
-          getRowKey={(row) => row.id}
-          isLoading={ordersQuery.isLoading}
-          errorMessage={ordersQuery.isError ? describeApiError(ordersQuery.error) : null}
-          onRetry={() => ordersQuery.refetch()}
-          emptyTitle="No orders yet"
-          emptyDescription="Open your first order using the button above."
-          getSearchValue={getOrderSearchValue}
+        <ListToolbar
+          searchValue={searchTerm}
+          onSearchChange={setSearchTerm}
           searchPlaceholder="Search orders…"
-          filters={filters}
-          onRowClick={(row) => navigate(BILLING_ROUTES.orderDetail(row.id))}
-          mobileCard={(row) => (
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-semibold text-ink">
-                  {row.orderNumber ?? (row.tokenNumber ? `Token #${row.tokenNumber}` : '—')}
-                </span>
-                <Badge tone={toneForStatus(row.status)}>{statusLabel(row.status)}</Badge>
-              </div>
-              <span className="truncate text-sm text-ink">{row.customerName || 'Walk-in'}</span>
-              <div className="flex items-center justify-between gap-2 text-xs text-ink-faint">
-                <span className="truncate">
-                  {ORDER_TYPE_LABELS[row.orderType]} · {row.locationName}
-                </span>
-                <span className="shrink-0 font-semibold text-ink">₹{row.total}</span>
-              </div>
-              <span className="text-xs text-ink-faint">{formatTimestamp(row.createdAt)}</span>
-              <div className="mt-1 flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  leadingIcon={<Eye size={14} />}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setPreviewOrder(row);
-                  }}
-                >
-                  Preview
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  leadingIcon={<Printer size={14} />}
-                  isLoading={printingOrderId === row.id}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handlePrint(row);
-                  }}
-                >
-                  Print
-                </Button>
-              </div>
-            </div>
-          )}
-          toolbarTrailing={
+          filters={toolbarFilters}
+          hasActiveFilters={hasActiveFilters}
+          onClear={clearFilters}
+          trailing={
             <>
               <Select
                 className="w-auto min-w-[9.5rem]"
@@ -339,6 +215,20 @@ export function OrdersPage() {
               <Button onClick={() => navigate(BILLING_ROUTES.newOrder)}>New order</Button>
             </>
           }
+        />
+        <OrderListCards
+          orders={filteredOrders}
+          isLoading={ordersQuery.isLoading}
+          errorMessage={ordersQuery.isError ? describeApiError(ordersQuery.error) : null}
+          onRetry={() => ordersQuery.refetch()}
+          onRowClick={(order) => navigate(BILLING_ROUTES.orderDetail(order.id))}
+          onPreview={(order) => setPreviewOrder(order)}
+          onPrint={handlePrint}
+          printingOrderId={printingOrderId}
+          emptyTitle="No orders yet"
+          emptyDescription="Open your first order using the button above."
+          isFilteredEmpty={dateFilteredOrders.length > 0 && hasActiveFilters}
+          onClearFilters={clearFilters}
         />
       </Card>
 

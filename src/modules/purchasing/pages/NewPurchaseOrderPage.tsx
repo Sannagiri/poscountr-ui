@@ -1,22 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
-import { ListOrdered, Plus, Trash2 } from 'lucide-react';
+import { Building2, ListOrdered, Plus, Receipt, ShoppingBag, Trash2 } from 'lucide-react';
 
 import type { AddAdhocLineValues } from '@/components';
 import {
   AddAdhocLineModal,
   Button,
-  Card,
   EmptyState,
   Input,
   PageHeader,
   SearchInput,
+  SectionCard,
   Select,
   useToast,
 } from '@/components';
 import { describeApiError } from '@/utils/errors';
 import { getSessionMemory, setSessionMemory } from '@/utils/sessionMemory';
+import { categoricalPalette, colors } from '@/styles/colors';
 
 import { useAuthStore } from '@/modules/auth';
 import { useBusinesses, useLocations } from '@/modules/businesses';
@@ -82,6 +83,15 @@ type PurchaseCartLine =
       purchasePrice: string;
       discountPercent: string;
     };
+
+/** Same accent-per-section idea as `NewOrderPage`'s own `SECTION_ACCENT`, so this creation screen reads as part of the same visual system as the Purchase Order detail page it leads into. */
+const SECTION_ACCENT = {
+  setup: categoricalPalette[0], // blue
+  supplier: categoricalPalette[6], // violet — matches `PurchaseOrderDetailPage`'s own supplier accent
+  products: colors.brand.DEFAULT, // brand orange
+  addLine: categoricalPalette[3], // yellow — the inline "Add {product}" line form
+  lines: categoricalPalette[2], // aqua
+} as const;
 
 function lineName(line: PurchaseCartLine): string {
   return line.kind === 'product' ? line.product.name : line.name;
@@ -384,7 +394,11 @@ export function NewPurchaseOrderPage() {
       */}
       <div className="flex flex-col gap-4">
         {isTenantAdmin && (businessOptions.length > 1 || locationOptions.length > 1) ? (
-          <Card>
+          <SectionCard
+            title="Order setup"
+            icon={<Building2 size={16} />}
+            accent={SECTION_ACCENT.setup}
+          >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {businessOptions.length > 1 ? (
                 <Controller
@@ -423,10 +437,10 @@ export function NewPurchaseOrderPage() {
                 />
               ) : null}
             </div>
-          </Card>
+          </SectionCard>
         ) : null}
 
-        <Card>
+        <SectionCard title="Supplier" icon={<Receipt size={16} />} accent={SECTION_ACCENT.supplier}>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Controller
@@ -462,7 +476,7 @@ export function NewPurchaseOrderPage() {
             </div>
             <Input label="Note (optional)" {...register('note')} />
           </div>
-        </Card>
+        </SectionCard>
 
         {/*
           Opens inline rather than sending the user off to `/suppliers` —
@@ -479,7 +493,11 @@ export function NewPurchaseOrderPage() {
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-4">
-            <Card>
+            <SectionCard
+              title="Products"
+              icon={<ShoppingBag size={16} />}
+              accent={SECTION_ACCENT.products}
+            >
               <div className="mb-3 flex items-center gap-2">
                 <div className="min-w-0 flex-1">
                   <SearchInput
@@ -524,7 +542,7 @@ export function NewPurchaseOrderPage() {
                       key={product.id}
                       type="button"
                       onClick={() => pickProduct(product)}
-                      className="flex flex-col items-start gap-0.5 rounded-control border border-border p-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5 data-[selected=true]:border-brand data-[selected=true]:bg-brand/5"
+                      className="flex flex-col items-start gap-0.5 rounded-xl border border-border/70 bg-surface-card p-3 text-left shadow-sm transition-all hover:-translate-y-px hover:border-brand/40 hover:bg-brand/5 hover:shadow-card data-[selected=true]:border-brand data-[selected=true]:bg-brand/5"
                       data-selected={selectedProduct?.id === product.id}
                     >
                       <span className="truncate text-sm font-semibold text-ink">
@@ -538,15 +556,16 @@ export function NewPurchaseOrderPage() {
                   ))}
                 </div>
               )}
-            </Card>
+            </SectionCard>
           </div>
 
           <div className="flex min-w-0 flex-col gap-4">
             {selectedProduct ? (
-              <Card>
-                <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                  Add {selectedProduct.name}
-                </p>
+              <SectionCard
+                title={`Add ${selectedProduct.name}`}
+                icon={<Plus size={16} />}
+                accent={SECTION_ACCENT.addLine}
+              >
                 <form
                   onSubmit={handleLineSubmit(addLine)}
                   className="flex flex-col gap-3"
@@ -602,13 +621,15 @@ export function NewPurchaseOrderPage() {
                     <Button type="submit">Add to order</Button>
                   </div>
                 </form>
-              </Card>
+              </SectionCard>
             ) : null}
 
-            <Card className="flex min-h-[220px] flex-col">
-              <p className="mb-3 shrink-0 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                Lines{cart.length ? ` (${cart.length})` : ''}
-              </p>
+            <SectionCard
+              title={`Lines${cart.length ? ` (${cart.length})` : ''}`}
+              icon={<Receipt size={16} />}
+              accent={SECTION_ACCENT.lines}
+              className="flex min-h-[220px] flex-col"
+            >
               {cart.length === 0 ? (
                 <p className="flex flex-1 items-center justify-center text-center text-xs text-ink-faint">
                   No lines yet — pick a product on the left to add one.
@@ -620,7 +641,7 @@ export function NewPurchaseOrderPage() {
                       {cart.map((line) => (
                         <div
                           key={line.localId}
-                          className="flex items-start justify-between gap-2 rounded-control border border-border/60 p-2.5"
+                          className="flex items-start justify-between gap-2 rounded-xl border border-border/60 bg-surface/40 p-2.5 shadow-sm"
                         >
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium text-ink">
@@ -663,14 +684,22 @@ export function NewPurchaseOrderPage() {
                       <span>Tax (est.)</span>
                       <span>₹{totals.taxTotal.toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between font-semibold text-ink">
-                      <span>Total (est.)</span>
-                      <span>₹{totals.total.toFixed(2)}</span>
+                    <div
+                      className="mt-1 flex items-center justify-between rounded-xl px-3 py-2.5"
+                      style={{ backgroundColor: `${SECTION_ACCENT.lines}1a` }}
+                    >
+                      <span className="text-sm font-semibold text-ink">Total (est.)</span>
+                      <span
+                        className="text-lg font-extrabold"
+                        style={{ color: SECTION_ACCENT.lines }}
+                      >
+                        ₹{totals.total.toFixed(2)}
+                      </span>
                     </div>
                   </div>
                 </>
               )}
-            </Card>
+            </SectionCard>
 
             <Button
               type="button"

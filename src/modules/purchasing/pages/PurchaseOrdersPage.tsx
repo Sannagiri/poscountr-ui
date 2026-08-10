@@ -1,14 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText } from 'lucide-react';
 
-import type { DataTableColumn, DataTableFilter } from '@/components';
-import { Badge, Button, Card, DataTable, DatePicker, PageHeader, Select } from '@/components';
-import { dateIST, formatTimestamp, toISTDate } from '@/utils/date';
+import { Button, Card, DatePicker, ListToolbar, PageHeader, Select } from '@/components';
+import { dateIST, toISTDate } from '@/utils/date';
 import { describeApiError } from '@/utils/errors';
-import { statusLabel, toneForStatus } from '@/utils/status';
+import { applyFilterValues, filterBySearch, hasActiveListFilters } from '@/utils/listFilter';
 
 import { PurchaseOrderBillPreviewModal } from '../components/PurchaseOrderBillPreviewModal';
+import { PurchaseOrderListCards } from '../components/PurchaseOrderListCards';
 import {
   PURCHASE_ORDER_STATUS_OPTIONS,
   PURCHASING_ROUTES,
@@ -49,14 +48,21 @@ const DATE_PRESET_OPTIONS: { value: DatePreset; label: string }[] = [
   { value: 'all', label: 'All time' },
 ];
 
+interface PurchaseOrderFilterDef {
+  key: string;
+  label: string;
+  options: { value: string; label: string }[];
+}
+
 /**
- * Every purchase order visible to the actor, in one flat table — manager
- * pre-scoped to their own assigned location server-side, tenant_admin sees
- * every location (same scoping shape `OrdersPage` already established for
- * sales orders). Search/status/location/supplier filters are all applied
- * client-side over the one already-fetched list, same "fetch once, narrow
- * with `DataTable`'s own filters" convention `OrdersPage`/`ProductsPage` use
- * — the backend also accepts these three as server-side query params
+ * Every purchase order visible to the actor, as a compact, colorful list
+ * (see `PurchaseOrderListCards`) — manager pre-scoped to their own assigned
+ * location server-side, tenant_admin sees every location (same scoping
+ * shape `OrdersPage` already established for sales orders).
+ * Search/status/location/supplier filters are all applied client-side over
+ * the one already-fetched list, same "fetch once, narrow with `ListToolbar`
+ * + `listFilter` helpers" convention `OrdersPage`/`ProductsPage` use — the
+ * backend also accepts these three as server-side query params
  * (`usePurchaseOrders`'s own filters argument), left unused here for the
  * same reason `OrdersPage` leaves its own status/location filters unused:
  * the whole list is small enough that one fetch plus client-side narrowing
@@ -66,6 +72,9 @@ export function PurchaseOrdersPage() {
   const navigate = useNavigate();
   const purchaseOrdersQuery = usePurchaseOrders();
   const [previewPurchaseOrder, setPreviewPurchaseOrder] = useState<PurchaseOrder | null>(null);
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
 
   const [datePreset, setDatePreset] = useState<DatePreset>('week');
   const [specificDate, setSpecificDate] = useState(() => dateIST());
@@ -109,52 +118,7 @@ export function PurchaseOrdersPage() {
     return Array.from(seen, ([value, label]) => ({ value, label }));
   }, [purchaseOrdersQuery.data]);
 
-  const columns: DataTableColumn<PurchaseOrder>[] = useMemo(
-    () => [
-      {
-        key: 'purchaseNumber',
-        header: 'PO #',
-        width: '110px',
-        render: (row) => row.purchaseNumber ?? '—',
-      },
-      { key: 'supplierName', header: 'Supplier', width: '1.3fr' },
-      { key: 'locationName', header: 'Location', width: '1fr' },
-      {
-        key: 'status',
-        header: 'Status',
-        width: '120px',
-        render: (row) => <Badge tone={toneForStatus(row.status)}>{statusLabel(row.status)}</Badge>,
-      },
-      { key: 'total', header: 'Total', width: '100px', render: (row) => `₹${row.total}` },
-      {
-        key: 'createdAt',
-        header: 'Created',
-        width: '180px',
-        render: (row) => formatTimestamp(row.createdAt),
-      },
-      {
-        key: 'document',
-        header: 'Document',
-        width: '110px',
-        render: (row) => (
-          <Button
-            variant="ghost"
-            size="sm"
-            leadingIcon={<FileText size={14} />}
-            onClick={(event) => {
-              event.stopPropagation();
-              setPreviewPurchaseOrder(row);
-            }}
-          >
-            Preview
-          </Button>
-        ),
-      },
-    ],
-    [],
-  );
-
-  const filters: DataTableFilter<PurchaseOrder>[] = useMemo(
+  const filters: PurchaseOrderFilterDef[] = useMemo(
     () => [
       { key: 'status', label: 'Status', options: PURCHASE_ORDER_STATUS_OPTIONS },
       { key: 'locationId', label: 'Location', options: locationFilterOptions },
@@ -162,6 +126,31 @@ export function PurchaseOrdersPage() {
     ],
     [locationFilterOptions, supplierFilterOptions],
   );
+
+  const toolbarFilters = useMemo(
+    () =>
+      filters.map((filter) => ({
+        key: filter.key,
+        label: filter.label,
+        value: filterValues[filter.key] ?? 'all',
+        onChange: (value: string) => setFilterValues((prev) => ({ ...prev, [filter.key]: value })),
+        options: filter.options,
+      })),
+    [filters, filterValues],
+  );
+  const hasActiveFilters = hasActiveListFilters(searchTerm, filterValues);
+  const filteredPurchaseOrders = useMemo(() => {
+    const searched = filterBySearch(
+      dateFilteredPurchaseOrders,
+      searchTerm,
+      getPurchaseOrderSearchValue,
+    );
+    return applyFilterValues(searched, filters, filterValues);
+  }, [dateFilteredPurchaseOrders, searchTerm, filters, filterValues]);
+  function clearFilters() {
+    setSearchTerm('');
+    setFilterValues({});
+  }
 
   return (
     <div>
@@ -171,50 +160,14 @@ export function PurchaseOrdersPage() {
       />
 
       <Card>
-        <DataTable
-          columns={columns}
-          data={dateFilteredPurchaseOrders}
-          getRowKey={(row) => row.id}
-          isLoading={purchaseOrdersQuery.isLoading}
-          errorMessage={
-            purchaseOrdersQuery.isError ? describeApiError(purchaseOrdersQuery.error) : null
-          }
-          onRetry={() => purchaseOrdersQuery.refetch()}
-          emptyTitle="No purchase orders yet"
-          emptyDescription="Record your first stock-in order using the button above."
-          getSearchValue={getPurchaseOrderSearchValue}
+        <ListToolbar
+          searchValue={searchTerm}
+          onSearchChange={setSearchTerm}
           searchPlaceholder="Search purchase orders…"
-          filters={filters}
-          onRowClick={(row) => navigate(PURCHASING_ROUTES.purchaseOrderDetail(row.id))}
-          mobileCard={(row) => (
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-semibold text-ink">
-                  {row.purchaseNumber ?? '—'}
-                </span>
-                <Badge tone={toneForStatus(row.status)}>{statusLabel(row.status)}</Badge>
-              </div>
-              <span className="truncate text-sm text-ink">{row.supplierName}</span>
-              <div className="flex items-center justify-between gap-2 text-xs text-ink-faint">
-                <span className="truncate">{row.locationName}</span>
-                <span className="shrink-0 font-semibold text-ink">₹{row.total}</span>
-              </div>
-              <span className="text-xs text-ink-faint">{formatTimestamp(row.createdAt)}</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                leadingIcon={<FileText size={14} />}
-                className="mt-1 self-start"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setPreviewPurchaseOrder(row);
-                }}
-              >
-                Preview document
-              </Button>
-            </div>
-          )}
-          toolbarTrailing={
+          filters={toolbarFilters}
+          hasActiveFilters={hasActiveFilters}
+          onClear={clearFilters}
+          trailing={
             <>
               <Select
                 className="w-auto min-w-[9.5rem]"
@@ -251,6 +204,20 @@ export function PurchaseOrdersPage() {
               </Button>
             </>
           }
+        />
+        <PurchaseOrderListCards
+          purchaseOrders={filteredPurchaseOrders}
+          isLoading={purchaseOrdersQuery.isLoading}
+          errorMessage={
+            purchaseOrdersQuery.isError ? describeApiError(purchaseOrdersQuery.error) : null
+          }
+          onRetry={() => purchaseOrdersQuery.refetch()}
+          onRowClick={(row) => navigate(PURCHASING_ROUTES.purchaseOrderDetail(row.id))}
+          onPreview={(row) => setPreviewPurchaseOrder(row)}
+          emptyTitle="No purchase orders yet"
+          emptyDescription="Record your first stock-in order using the button above."
+          isFilteredEmpty={dateFilteredPurchaseOrders.length > 0 && hasActiveFilters}
+          onClearFilters={clearFilters}
         />
       </Card>
 

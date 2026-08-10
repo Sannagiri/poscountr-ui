@@ -1,13 +1,24 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { CheckCircle2, Eye, ListOrdered, Trash2, XCircle } from 'lucide-react';
+import {
+  CheckCircle2,
+  Eye,
+  History,
+  IndianRupee,
+  ListOrdered,
+  Plus,
+  Receipt,
+  Trash2,
+  User,
+  XCircle,
+  Zap,
+} from 'lucide-react';
 
 import type { AddAdhocLineValues, DataTableColumn, DataTableRowAction } from '@/components';
 import {
   AddAdhocLineModal,
   Badge,
   Button,
-  Card,
   ConfirmDialog,
   DataTable,
   EmptyState,
@@ -15,12 +26,14 @@ import {
   Modal,
   PageHeader,
   SearchInput,
+  SectionCard,
   useToast,
 } from '@/components';
 import { cn } from '@/utils/cn';
 import { formatTimestamp } from '@/utils/date';
 import { describeApiError } from '@/utils/errors';
 import { statusLabel, toneForStatus } from '@/utils/status';
+import { categoricalPalette, colors } from '@/styles/colors';
 
 import { BILLING_ROUTES } from '@/modules/billing';
 import type { Product } from '@/modules/inventory';
@@ -51,6 +64,29 @@ const STATUS_BANNER_COPY: Record<'accepted' | 'declined' | 'expired', { title: s
   accepted: { title: 'This quotation was accepted' },
   declined: { title: 'This quotation was declined' },
   expired: { title: 'This quotation has expired' },
+};
+
+/** One accent hue per section card, same "distinct block, not a wall of white cards" idea `OrderDetailPage`'s own `SECTION_ACCENT` establishes. */
+const SECTION_ACCENT = {
+  quotationInfo: categoricalPalette[0], // blue
+  customer: categoricalPalette[6], // violet
+  items: colors.brand.DEFAULT, // brand orange
+  actions: categoricalPalette[2], // aqua
+  totals: colors.success.DEFAULT, // green
+  timeline: categoricalPalette[4], // magenta
+} as const;
+
+const STATUS_BANNER_ACCENT: Record<'accepted' | 'declined' | 'expired', string> = {
+  accepted: colors.success.DEFAULT,
+  declined: colors.danger.DEFAULT,
+  expired: colors.warning.DEFAULT,
+};
+
+const TIMELINE_STEP_COLOR: Record<string, string> = {
+  'Quotation raised': colors.ink.faint,
+  Accepted: colors.success.DEFAULT,
+  Declined: colors.danger.DEFAULT,
+  Expired: colors.warning.DEFAULT,
 };
 
 /**
@@ -314,27 +350,30 @@ export function QuotationDetailPage() {
       />
 
       {bannerCopy ? (
-        <Card className="mb-4">
-          <div className="flex flex-col gap-1">
-            <p className="text-sm font-semibold text-ink">{bannerCopy.title}</p>
-            {quotation.status === 'declined' && quotation.declineReason ? (
-              <p className="text-sm text-ink-soft">Reason: {quotation.declineReason}</p>
-            ) : null}
-            {quotation.status === 'expired' && quotation.validUntil ? (
-              <p className="text-sm text-ink-soft">It was valid until {quotation.validUntil}.</p>
-            ) : null}
-            {quotation.status === 'accepted' && quotation.orderId ? (
-              <Button
-                variant="secondary"
-                size="sm"
-                className="mt-1 self-start"
-                onClick={() => navigate(BILLING_ROUTES.orderDetail(quotation.orderId as string))}
-              >
-                View order
-              </Button>
-            ) : null}
-          </div>
-        </Card>
+        <div
+          className="mb-4 flex flex-col gap-1 rounded-2xl border border-border/60 p-4"
+          style={{
+            background: `linear-gradient(135deg, ${STATUS_BANNER_ACCENT[quotation.status as 'accepted' | 'declined' | 'expired']}1a, transparent)`,
+          }}
+        >
+          <p className="text-sm font-semibold text-ink">{bannerCopy.title}</p>
+          {quotation.status === 'declined' && quotation.declineReason ? (
+            <p className="text-sm text-ink-soft">Reason: {quotation.declineReason}</p>
+          ) : null}
+          {quotation.status === 'expired' && quotation.validUntil ? (
+            <p className="text-sm text-ink-soft">It was valid until {quotation.validUntil}.</p>
+          ) : null}
+          {quotation.status === 'accepted' && quotation.orderId ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="mt-1 self-start"
+              onClick={() => navigate(BILLING_ROUTES.orderDetail(quotation.orderId as string))}
+            >
+              View order
+            </Button>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
@@ -347,10 +386,11 @@ export function QuotationDetailPage() {
             full page) so it doesn't crowd out the sidebar beside it.
           */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Card>
-              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                Quotation info
-              </p>
+            <SectionCard
+              title="Quotation info"
+              icon={<Receipt size={16} />}
+              accent={SECTION_ACCENT.quotationInfo}
+            >
               <div className="flex flex-col gap-1.5 text-sm">
                 <div className="flex justify-between">
                   <span className="text-ink-soft">Quotation #</span>
@@ -375,12 +415,13 @@ export function QuotationDetailPage() {
                   </span>
                 </div>
               </div>
-            </Card>
+            </SectionCard>
 
-            <Card>
-              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                Customer
-              </p>
+            <SectionCard
+              title="Customer"
+              icon={<User size={16} />}
+              accent={SECTION_ACCENT.customer}
+            >
               <div className="flex flex-col gap-1 text-sm text-ink">
                 <p className="font-medium">{quotation.customerName}</p>
                 <p className="text-ink-soft">{quotation.customerPhone}</p>
@@ -394,13 +435,14 @@ export function QuotationDetailPage() {
                   <p className="mt-2 text-xs text-ink-faint">Note: {quotation.note}</p>
                 ) : null}
               </div>
-            </Card>
+            </SectionCard>
           </div>
 
-          <Card>
-            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-              Items{quotation.items.length ? ` (${quotation.items.length})` : ''}
-            </p>
+          <SectionCard
+            title={`Items${quotation.items.length ? ` (${quotation.items.length})` : ''}`}
+            icon={<Receipt size={16} />}
+            accent={SECTION_ACCENT.items}
+          >
             <DataTable
               columns={itemColumns}
               data={quotation.items}
@@ -414,20 +456,34 @@ export function QuotationDetailPage() {
 
             {canEditItems ? (
               <div className="mt-4 border-t border-border pt-4">
-                <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="mb-3 flex items-center gap-1.5">
+                  <span
+                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-white"
+                    style={{ backgroundColor: SECTION_ACCENT.items }}
+                  >
+                    <Plus size={10} />
+                  </span>
                   <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">
                     Add a product
                   </p>
-                  <Button variant="secondary" size="sm" onClick={() => setAdhocModalOpen(true)}>
-                    + Add custom line
-                  </Button>
                 </div>
-                <div>
-                  <SearchInput
-                    value={addItemSearch}
-                    onChange={(event) => setAddItemSearch(event.target.value)}
-                    placeholder="Search products to add…"
-                  />
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <SearchInput
+                      value={addItemSearch}
+                      onChange={(event) => setAddItemSearch(event.target.value)}
+                      placeholder="Search products to add…"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="h-10 shrink-0"
+                    onClick={() => setAdhocModalOpen(true)}
+                  >
+                    + Custom line
+                  </Button>
                 </div>
                 {addableProducts.length === 0 ? (
                   <p className="mt-3 text-xs text-ink-faint">No matching products.</p>
@@ -479,12 +535,12 @@ export function QuotationDetailPage() {
                 )}
               </div>
             ) : null}
-          </Card>
+          </SectionCard>
         </div>
 
         <div className="flex flex-col gap-4">
           {mayAccept || mayDecline ? (
-            <Card>
+            <SectionCard title="Actions" icon={<Zap size={16} />} accent={SECTION_ACCENT.actions}>
               <div className="flex flex-col gap-2">
                 {mayAccept ? (
                   <Button
@@ -507,11 +563,14 @@ export function QuotationDetailPage() {
                   </Button>
                 ) : null}
               </div>
-            </Card>
+            </SectionCard>
           ) : null}
 
-          <Card>
-            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">Totals</p>
+          <SectionCard
+            title="Totals"
+            icon={<IndianRupee size={16} />}
+            accent={SECTION_ACCENT.totals}
+          >
             <div className="flex flex-col gap-1.5 text-sm">
               <div className="flex justify-between text-ink-soft">
                 <span>Subtotal</span>
@@ -527,23 +586,40 @@ export function QuotationDetailPage() {
                 <span>Tax</span>
                 <span>₹{quotation.taxTotal}</span>
               </div>
-              <div className="flex justify-between border-t border-border pt-1.5 font-semibold text-ink">
-                <span>Total</span>
-                <span>₹{quotation.total}</span>
+              <div
+                className="mt-1.5 flex items-center justify-between rounded-xl px-3 py-2.5"
+                style={{ backgroundColor: `${SECTION_ACCENT.totals}1a` }}
+              >
+                <span className="text-sm font-semibold text-ink">Total</span>
+                <span className="text-lg font-extrabold" style={{ color: SECTION_ACCENT.totals }}>
+                  ₹{quotation.total}
+                </span>
               </div>
             </div>
-          </Card>
+          </SectionCard>
 
           {timelineSteps.length > 1 ? (
-            <Card>
-              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                Timeline
-              </p>
-              <div className="flex flex-col gap-2.5">
-                {timelineSteps.map((step) => (
-                  <div key={step.label} className="flex items-center gap-2.5">
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
-                    <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+            <SectionCard
+              title="Timeline"
+              icon={<History size={16} />}
+              accent={SECTION_ACCENT.timeline}
+            >
+              <div className="flex flex-col">
+                {timelineSteps.map((step, index) => (
+                  <div key={step.label} className="flex gap-2.5">
+                    <div className="flex flex-col items-center">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor: TIMELINE_STEP_COLOR[step.label] ?? colors.ink.faint,
+                          boxShadow: `0 0 0 4px ${TIMELINE_STEP_COLOR[step.label] ?? colors.ink.faint}1a`,
+                        }}
+                      />
+                      {index < timelineSteps.length - 1 ? (
+                        <span className="w-px flex-1 bg-border" />
+                      ) : null}
+                    </div>
+                    <div className="flex min-w-0 flex-1 items-center justify-between gap-2 pb-3">
                       <span className="text-sm font-medium text-ink">{step.label}</span>
                       <span className="shrink-0 text-xs text-ink-faint">
                         {formatTimestamp(step.timestamp)}
@@ -552,7 +628,7 @@ export function QuotationDetailPage() {
                   </div>
                 ))}
               </div>
-            </Card>
+            </SectionCard>
           ) : null}
         </div>
       </div>

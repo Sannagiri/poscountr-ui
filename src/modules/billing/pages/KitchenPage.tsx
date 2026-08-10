@@ -1,7 +1,11 @@
 import { useMemo, useState } from 'react';
+import { CheckCircle2, ChefHat, Flame } from 'lucide-react';
 
+import type { BadgeTone } from '@/components';
 import { Badge, Card, EmptyState, Loader, PageHeader, Select } from '@/components';
+import { cn } from '@/utils/cn';
 import { describeApiError } from '@/utils/errors';
+import { toneForStatus } from '@/utils/status';
 
 import { useAuthStore } from '@/modules/auth';
 import { useLocations } from '@/modules/businesses';
@@ -15,25 +19,57 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 interface KdsColumn {
   status: 'kot_fired' | 'preparing' | 'ready';
   title: string;
+  icon: typeof Flame;
   actionLabel: string;
   call: (orderId: string) => ReturnType<typeof billingService.setPreparing>;
 }
 
+// Tone comes from `toneForStatus` below (the app's single source of truth for status colors,
+// docs/coding-standards.md §13) — kot_fired/preparing both land on 'accent' there (same "still in
+// the kitchen pipeline" blue), ready lands on 'success' (green). Not reassigned here; this file
+// only maps that tone to a border/icon-chip treatment Badge itself doesn't offer.
 const COLUMNS: KdsColumn[] = [
   {
     status: 'kot_fired',
     title: 'KOT fired',
+    icon: Flame,
     actionLabel: 'Start preparing',
     call: billingService.setPreparing,
   },
   {
     status: 'preparing',
     title: 'Preparing',
+    icon: ChefHat,
     actionLabel: 'Mark ready',
     call: billingService.setReady,
   },
-  { status: 'ready', title: 'Ready', actionLabel: 'Mark delivered', call: billingService.deliver },
+  {
+    status: 'ready',
+    title: 'Ready',
+    icon: CheckCircle2,
+    actionLabel: 'Mark delivered',
+    call: billingService.deliver,
+  },
 ];
+
+// Same tone vocabulary as Badge's own TONE_CLASSES, just translated to a left-border accent
+// instead of a pill fill — one shared lookup so a KOT card's border and its "N min" badge always
+// agree on which color a given tone means.
+const TONE_BORDER_CLASS: Record<BadgeTone, string> = {
+  success: 'border-l-success',
+  warning: 'border-l-warning',
+  danger: 'border-l-danger',
+  accent: 'border-l-accent',
+  neutral: 'border-l-border',
+};
+
+const TONE_ICON_CLASS: Record<BadgeTone, string> = {
+  success: 'bg-success-bg text-success-text',
+  warning: 'bg-warning-bg text-warning-text',
+  danger: 'bg-danger-bg text-danger-text',
+  accent: 'bg-accent/10 text-accent-dark',
+  neutral: 'bg-border text-ink-soft',
+};
 
 /**
  * Kitchen Display board — its own nav item/page (per the F6 confirm-first
@@ -122,36 +158,46 @@ export function KitchenPage() {
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {COLUMNS.map((column) => (
-            <div key={column.status} className="flex flex-col gap-2">
-              <div className="flex items-center gap-2 px-1">
-                <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">
-                  {column.title}
-                </p>
-                <Badge tone="neutral">{ordersByStatus[column.status]?.length ?? 0}</Badge>
+          {COLUMNS.map((column) => {
+            const tone = toneForStatus(column.status);
+            const Icon = column.icon;
+            return (
+              <div key={column.status} className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 px-1">
+                  <span
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${TONE_ICON_CLASS[tone]}`}
+                  >
+                    <Icon size={13} />
+                  </span>
+                  <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">
+                    {column.title}
+                  </p>
+                  <Badge tone={tone}>{ordersByStatus[column.status]?.length ?? 0}</Badge>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {(ordersByStatus[column.status] ?? []).length === 0 ? (
+                    <Card className="py-8 text-center text-xs text-ink-faint">Nothing here</Card>
+                  ) : (
+                    ordersByStatus[column.status]?.map((order) => (
+                      <KdsCard
+                        key={order.id}
+                        order={order}
+                        tone={tone}
+                        actionLabel={column.actionLabel}
+                        isLoading={
+                          transitionMutation.isPending &&
+                          transitionMutation.variables?.orderId === order.id
+                        }
+                        onAdvance={() =>
+                          transitionMutation.mutate({ orderId: order.id, call: column.call })
+                        }
+                      />
+                    ))
+                  )}
+                </div>
               </div>
-              <div className="flex flex-col gap-2">
-                {(ordersByStatus[column.status] ?? []).length === 0 ? (
-                  <Card className="py-8 text-center text-xs text-ink-faint">Nothing here</Card>
-                ) : (
-                  ordersByStatus[column.status]?.map((order) => (
-                    <KdsCard
-                      key={order.id}
-                      order={order}
-                      actionLabel={column.actionLabel}
-                      isLoading={
-                        transitionMutation.isPending &&
-                        transitionMutation.variables?.orderId === order.id
-                      }
-                      onAdvance={() =>
-                        transitionMutation.mutate({ orderId: order.id, call: column.call })
-                      }
-                    />
-                  ))
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -160,22 +206,30 @@ export function KitchenPage() {
 
 function KdsCard({
   order,
+  tone,
   actionLabel,
   isLoading,
   onAdvance,
 }: {
   order: KdsOrder;
+  /** This card's column tone (toneForStatus(order.status), resolved once by the caller) — a late
+   * order overrides it with 'danger' below, since "this is now overdue" outranks which stage it's
+   * in. */
+  tone: BadgeTone;
   actionLabel: string;
   isLoading: boolean;
   onAdvance: () => void;
 }) {
+  const cardTone = order.isLate ? 'danger' : tone;
   return (
-    <Card className={order.isLate ? 'border-danger/40 bg-danger-bg/40' : undefined}>
+    <Card
+      className={cn('border-l-4', TONE_BORDER_CLASS[cardTone], order.isLate && 'bg-danger-bg/40')}
+    >
       <div className="mb-2 flex items-start justify-between gap-2">
         <p className="text-sm font-bold text-ink">
           {order.tokenNumber ? `Token #${order.tokenNumber}` : order.tableNumber || 'Order'}
         </p>
-        <Badge tone={order.isLate ? 'danger' : 'neutral'}>{order.elapsedMinutes} min</Badge>
+        <Badge tone={cardTone}>{order.elapsedMinutes} min</Badge>
       </div>
       <ul className="mb-3 flex flex-col gap-0.5">
         {order.items.map((item, index) => (

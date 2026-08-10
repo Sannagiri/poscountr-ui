@@ -1,14 +1,26 @@
 import { useMemo, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Eye, ListOrdered, Lock, Pencil, Plus, Trash2 } from 'lucide-react';
+import {
+  CreditCard,
+  Eye,
+  History,
+  IndianRupee,
+  ListOrdered,
+  Lock,
+  Pencil,
+  Plus,
+  Receipt,
+  Trash2,
+  Truck,
+  Zap,
+} from 'lucide-react';
 
 import type { AddAdhocLineValues, DataTableColumn, DataTableRowAction } from '@/components';
 import {
   AddAdhocLineModal,
   Badge,
   Button,
-  Card,
   ConfirmDialog,
   DataTable,
   DatePicker,
@@ -18,6 +30,7 @@ import {
   Modal,
   PageHeader,
   SearchInput,
+  SectionCard,
   Select,
   useToast,
   WayBillUpload,
@@ -25,6 +38,7 @@ import {
 import { formatTimestamp } from '@/utils/date';
 import { describeApiError } from '@/utils/errors';
 import { statusLabel, toneForStatus } from '@/utils/status';
+import { categoricalPalette, colors } from '@/styles/colors';
 
 import type { Product } from '@/modules/inventory';
 import { useProducts } from '@/modules/inventory';
@@ -86,6 +100,24 @@ const EMPTY_RECORD_PAYMENT_FORM: RecordPaymentFormValues = {
   amount: '',
   paidOn: '',
   note: '',
+};
+
+/** One accent hue per section card, same "distinct block, not a wall of white cards" idea `OrderDetailPage`'s own `SECTION_ACCENT` establishes. */
+const SECTION_ACCENT = {
+  supplier: categoricalPalette[6], // violet
+  poInfo: categoricalPalette[0], // blue
+  lines: colors.brand.DEFAULT, // brand orange
+  actions: categoricalPalette[2], // aqua
+  totals: colors.success.DEFAULT, // green
+  payment: categoricalPalette[3], // yellow
+  wayBill: categoricalPalette[4], // magenta
+  timeline: categoricalPalette[7], // red
+} as const;
+
+const TIMELINE_STEP_COLOR: Record<string, string> = {
+  'Order placed': colors.ink.faint,
+  Completed: colors.success.DEFAULT,
+  Cancelled: colors.danger.DEFAULT,
 };
 
 /**
@@ -451,10 +483,11 @@ export function PurchaseOrderDetailPage() {
             so it doesn't crowd out the sidebar beside it.
           */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Card>
-              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                Supplier
-              </p>
+            <SectionCard
+              title="Supplier"
+              icon={<Receipt size={16} />}
+              accent={SECTION_ACCENT.supplier}
+            >
               <div className="flex flex-col gap-1 text-sm text-ink">
                 <p className="font-medium">{purchaseOrder.supplierName}</p>
                 {purchaseOrder.supplierPhone ? (
@@ -470,12 +503,13 @@ export function PurchaseOrderDetailPage() {
                   <p className="mt-2 text-xs text-ink-faint">Note: {purchaseOrder.note}</p>
                 ) : null}
               </div>
-            </Card>
+            </SectionCard>
 
-            <Card>
-              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                Purchase order info
-              </p>
+            <SectionCard
+              title="Purchase order info"
+              icon={<Receipt size={16} />}
+              accent={SECTION_ACCENT.poInfo}
+            >
               <div className="flex flex-col gap-1.5 text-sm">
                 <div className="flex justify-between">
                   <span className="text-ink-soft">PO #</span>
@@ -496,13 +530,14 @@ export function PurchaseOrderDetailPage() {
                   </span>
                 </div>
               </div>
-            </Card>
+            </SectionCard>
           </div>
 
-          <Card>
-            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-              Lines{purchaseOrder.items.length ? ` (${purchaseOrder.items.length})` : ''}
-            </p>
+          <SectionCard
+            title={`Lines${purchaseOrder.items.length ? ` (${purchaseOrder.items.length})` : ''}`}
+            icon={<Receipt size={16} />}
+            accent={SECTION_ACCENT.lines}
+          >
             <DataTable
               columns={itemColumns}
               data={purchaseOrder.items}
@@ -516,20 +551,34 @@ export function PurchaseOrderDetailPage() {
 
             {canEditItems ? (
               <div className="mt-4 border-t border-border pt-4">
-                <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="mb-3 flex items-center gap-1.5">
+                  <span
+                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-white"
+                    style={{ backgroundColor: SECTION_ACCENT.lines }}
+                  >
+                    <Plus size={10} />
+                  </span>
                   <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">
                     Add a line
                   </p>
-                  <Button variant="secondary" size="sm" onClick={() => setAdhocModalOpen(true)}>
-                    + Add custom line
-                  </Button>
                 </div>
-                <div>
-                  <SearchInput
-                    value={addLineSearch}
-                    onChange={(event) => setAddLineSearch(event.target.value)}
-                    placeholder="Search products to add…"
-                  />
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <SearchInput
+                      value={addLineSearch}
+                      onChange={(event) => setAddLineSearch(event.target.value)}
+                      placeholder="Search products to add…"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="h-10 shrink-0"
+                    onClick={() => setAdhocModalOpen(true)}
+                  >
+                    + Custom line
+                  </Button>
                 </div>
                 {addableProducts.length === 0 ? (
                   <p className="mt-3 text-xs text-ink-faint">No matching products.</p>
@@ -620,12 +669,12 @@ export function PurchaseOrderDetailPage() {
                 ) : null}
               </div>
             ) : null}
-          </Card>
+          </SectionCard>
         </div>
 
         <div className="flex flex-col gap-4">
           {mayComplete || mayCancel ? (
-            <Card>
+            <SectionCard title="Actions" icon={<Zap size={16} />} accent={SECTION_ACCENT.actions}>
               <div className="flex flex-col gap-2">
                 {mayComplete ? (
                   <Button
@@ -643,11 +692,14 @@ export function PurchaseOrderDetailPage() {
                   </Button>
                 ) : null}
               </div>
-            </Card>
+            </SectionCard>
           ) : null}
 
-          <Card>
-            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">Totals</p>
+          <SectionCard
+            title="Totals"
+            icon={<IndianRupee size={16} />}
+            accent={SECTION_ACCENT.totals}
+          >
             <div className="flex flex-col gap-1.5 text-sm">
               <div className="flex justify-between text-ink-soft">
                 <span>Subtotal</span>
@@ -657,29 +709,37 @@ export function PurchaseOrderDetailPage() {
                 <span>Tax</span>
                 <span>₹{purchaseOrder.taxTotal}</span>
               </div>
-              <div className="flex justify-between border-t border-border pt-1.5 font-semibold text-ink">
-                <span>Total</span>
-                <span>₹{purchaseOrder.total}</span>
-              </div>
               {purchaseOrder.actualTotal ? (
                 <div className="flex justify-between text-ink-soft">
                   <span>Actual bill amount</span>
                   <span>₹{purchaseOrder.actualTotal}</span>
                 </div>
               ) : null}
+              <div
+                className="mt-1.5 flex items-center justify-between rounded-xl px-3 py-2.5"
+                style={{ backgroundColor: `${SECTION_ACCENT.totals}1a` }}
+              >
+                <span className="text-sm font-semibold text-ink">Total</span>
+                <span className="text-lg font-extrabold" style={{ color: SECTION_ACCENT.totals }}>
+                  ₹{purchaseOrder.total}
+                </span>
+              </div>
             </div>
-          </Card>
+          </SectionCard>
 
           {purchaseOrder.status === 'completed' ? (
-            <Card>
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">Payment</p>
-                {purchaseOrder.isPaymentLocked ? (
+            <SectionCard
+              title="Payment"
+              icon={<CreditCard size={16} />}
+              accent={SECTION_ACCENT.payment}
+              headerAction={
+                purchaseOrder.isPaymentLocked ? (
                   <span className="flex items-center gap-1 text-xs font-medium text-ink-faint">
                     <Lock size={12} /> Fully paid
                   </span>
-                ) : null}
-              </div>
+                ) : null
+              }
+            >
               <div className="flex flex-col gap-1.5 text-sm">
                 <div className="flex justify-between">
                   <span className="text-ink-soft">Status</span>
@@ -761,28 +821,40 @@ export function PurchaseOrderDetailPage() {
                   </>
                 ) : null}
               </div>
-            </Card>
+            </SectionCard>
           ) : null}
 
-          <Card>
+          <SectionCard title="Way-bill" icon={<Truck size={16} />} accent={SECTION_ACCENT.wayBill}>
             <WayBillUpload
               url={purchaseOrder.wayBillUrl}
               uploadedAt={purchaseOrder.wayBillUploadedAt}
               onUpload={(file) => uploadWayBillMutation.mutateAsync(file)}
               onRemove={() => removeWayBillMutation.mutateAsync()}
             />
-          </Card>
+          </SectionCard>
 
           {timelineSteps.length > 1 ? (
-            <Card>
-              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                Timeline
-              </p>
-              <div className="flex flex-col gap-2.5">
-                {timelineSteps.map((step) => (
-                  <div key={step.label} className="flex items-center gap-2.5">
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
-                    <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+            <SectionCard
+              title="Timeline"
+              icon={<History size={16} />}
+              accent={SECTION_ACCENT.timeline}
+            >
+              <div className="flex flex-col">
+                {timelineSteps.map((step, index) => (
+                  <div key={step.label} className="flex gap-2.5">
+                    <div className="flex flex-col items-center">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor: TIMELINE_STEP_COLOR[step.label] ?? colors.ink.faint,
+                          boxShadow: `0 0 0 4px ${TIMELINE_STEP_COLOR[step.label] ?? colors.ink.faint}1a`,
+                        }}
+                      />
+                      {index < timelineSteps.length - 1 ? (
+                        <span className="w-px flex-1 bg-border" />
+                      ) : null}
+                    </div>
+                    <div className="flex min-w-0 flex-1 items-center justify-between gap-2 pb-3">
                       <span className="text-sm font-medium text-ink">{step.label}</span>
                       <span className="shrink-0 text-xs text-ink-faint">
                         {formatTimestamp(step.timestamp)}
@@ -791,7 +863,7 @@ export function PurchaseOrderDetailPage() {
                   </div>
                 ))}
               </div>
-            </Card>
+            </SectionCard>
           ) : null}
         </div>
       </div>

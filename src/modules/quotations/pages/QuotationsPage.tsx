@@ -1,14 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText } from 'lucide-react';
 
-import type { DataTableColumn, DataTableFilter } from '@/components';
-import { Badge, Button, Card, DataTable, DatePicker, PageHeader, Select } from '@/components';
-import { dateIST, formatTimestamp, toISTDate } from '@/utils/date';
+import { Button, Card, DatePicker, ListToolbar, PageHeader, Select } from '@/components';
+import { dateIST, toISTDate } from '@/utils/date';
 import { describeApiError } from '@/utils/errors';
-import { statusLabel, toneForStatus } from '@/utils/status';
+import { applyFilterValues, filterBySearch, hasActiveListFilters } from '@/utils/listFilter';
 
 import { QuotationBillPreviewModal } from '../components/QuotationBillPreviewModal';
+import { QuotationListCards } from '../components/QuotationListCards';
 import { QUOTATION_STATUS_OPTIONS, QUOTATIONS_ROUTES } from '../constants/quotation.constants';
 import { useQuotations } from '../hooks/useQuotations';
 import type { Quotation } from '../types/quotation.types';
@@ -46,18 +45,27 @@ const DATE_PRESET_OPTIONS: { value: DatePreset; label: string }[] = [
   { value: 'all', label: 'All time' },
 ];
 
+interface QuotationFilterDef {
+  key: string;
+  label: string;
+  options: { value: string; label: string }[];
+}
+
 /**
- * Every quotation visible to the actor, in one flat table — manager
- * pre-scoped to their own assigned location server-side, tenant_admin sees
- * every location (same scoping shape `PurchaseOrdersPage`/`OrdersPage`
- * already establish). Filters are applied client-side over the one
- * already-fetched list, same "fetch once, narrow with `DataTable`'s own
- * filters" convention `PurchaseOrdersPage` uses.
+ * Every quotation visible to the actor, as a compact, colorful list (see
+ * `QuotationListCards`) — manager pre-scoped to their own assigned location
+ * server-side, tenant_admin sees every location (same scoping shape
+ * `PurchaseOrdersPage`/`OrdersPage` already establish). Filters are applied
+ * client-side over the one already-fetched list, same "fetch once, narrow
+ * with `ListToolbar` + `listFilter` helpers" convention `OrdersPage` uses.
  */
 export function QuotationsPage() {
   const navigate = useNavigate();
   const quotationsQuery = useQuotations();
   const [previewQuotation, setPreviewQuotation] = useState<Quotation | null>(null);
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
 
   const [datePreset, setDatePreset] = useState<DatePreset>('week');
   const [specificDate, setSpecificDate] = useState(() => dateIST());
@@ -94,64 +102,34 @@ export function QuotationsPage() {
     return Array.from(seen, ([value, label]) => ({ value, label }));
   }, [quotationsQuery.data]);
 
-  const columns: DataTableColumn<Quotation>[] = useMemo(
-    () => [
-      {
-        key: 'quotationNumber',
-        header: 'Quotation #',
-        width: '130px',
-        render: (row) => row.quotationNumber ?? '—',
-      },
-      { key: 'customerName', header: 'Customer', width: '1.3fr' },
-      { key: 'locationName', header: 'Location', width: '1fr' },
-      {
-        key: 'status',
-        header: 'Status',
-        width: '120px',
-        render: (row) => <Badge tone={toneForStatus(row.status)}>{statusLabel(row.status)}</Badge>,
-      },
-      { key: 'total', header: 'Total', width: '100px', render: (row) => `₹${row.total}` },
-      {
-        key: 'validUntil',
-        header: 'Valid until',
-        width: '110px',
-        render: (row) => row.validUntil ?? '—',
-      },
-      {
-        key: 'createdAt',
-        header: 'Created',
-        width: '180px',
-        render: (row) => formatTimestamp(row.createdAt),
-      },
-      {
-        key: 'document',
-        header: 'Document',
-        width: '110px',
-        render: (row) => (
-          <Button
-            variant="ghost"
-            size="sm"
-            leadingIcon={<FileText size={14} />}
-            onClick={(event) => {
-              event.stopPropagation();
-              setPreviewQuotation(row);
-            }}
-          >
-            Preview
-          </Button>
-        ),
-      },
-    ],
-    [],
-  );
-
-  const filters: DataTableFilter<Quotation>[] = useMemo(
+  const filters: QuotationFilterDef[] = useMemo(
     () => [
       { key: 'status', label: 'Status', options: QUOTATION_STATUS_OPTIONS },
       { key: 'locationId', label: 'Location', options: locationFilterOptions },
     ],
     [locationFilterOptions],
   );
+
+  const toolbarFilters = useMemo(
+    () =>
+      filters.map((filter) => ({
+        key: filter.key,
+        label: filter.label,
+        value: filterValues[filter.key] ?? 'all',
+        onChange: (value: string) => setFilterValues((prev) => ({ ...prev, [filter.key]: value })),
+        options: filter.options,
+      })),
+    [filters, filterValues],
+  );
+  const hasActiveFilters = hasActiveListFilters(searchTerm, filterValues);
+  const filteredQuotations = useMemo(() => {
+    const searched = filterBySearch(dateFilteredQuotations, searchTerm, getQuotationSearchValue);
+    return applyFilterValues(searched, filters, filterValues);
+  }, [dateFilteredQuotations, searchTerm, filters, filterValues]);
+  function clearFilters() {
+    setSearchTerm('');
+    setFilterValues({});
+  }
 
   return (
     <div>
@@ -161,48 +139,14 @@ export function QuotationsPage() {
       />
 
       <Card>
-        <DataTable
-          columns={columns}
-          data={dateFilteredQuotations}
-          getRowKey={(row) => row.id}
-          isLoading={quotationsQuery.isLoading}
-          errorMessage={quotationsQuery.isError ? describeApiError(quotationsQuery.error) : null}
-          onRetry={() => quotationsQuery.refetch()}
-          emptyTitle="No quotations yet"
-          emptyDescription="Raise your first quotation using the button above."
-          getSearchValue={getQuotationSearchValue}
+        <ListToolbar
+          searchValue={searchTerm}
+          onSearchChange={setSearchTerm}
           searchPlaceholder="Search quotations…"
-          filters={filters}
-          onRowClick={(row) => navigate(QUOTATIONS_ROUTES.quotationDetail(row.id))}
-          mobileCard={(row) => (
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-semibold text-ink">
-                  {row.quotationNumber ?? '—'}
-                </span>
-                <Badge tone={toneForStatus(row.status)}>{statusLabel(row.status)}</Badge>
-              </div>
-              <span className="truncate text-sm text-ink">{row.customerName}</span>
-              <div className="flex items-center justify-between gap-2 text-xs text-ink-faint">
-                <span className="truncate">{row.locationName}</span>
-                <span className="shrink-0 font-semibold text-ink">₹{row.total}</span>
-              </div>
-              <span className="text-xs text-ink-faint">{formatTimestamp(row.createdAt)}</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                leadingIcon={<FileText size={14} />}
-                className="mt-1 self-start"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setPreviewQuotation(row);
-                }}
-              >
-                Preview document
-              </Button>
-            </div>
-          )}
-          toolbarTrailing={
+          filters={toolbarFilters}
+          hasActiveFilters={hasActiveFilters}
+          onClear={clearFilters}
+          trailing={
             <>
               <Select
                 className="w-auto min-w-[9.5rem]"
@@ -239,6 +183,18 @@ export function QuotationsPage() {
               </Button>
             </>
           }
+        />
+        <QuotationListCards
+          quotations={filteredQuotations}
+          isLoading={quotationsQuery.isLoading}
+          errorMessage={quotationsQuery.isError ? describeApiError(quotationsQuery.error) : null}
+          onRetry={() => quotationsQuery.refetch()}
+          onRowClick={(row) => navigate(QUOTATIONS_ROUTES.quotationDetail(row.id))}
+          onPreview={(row) => setPreviewQuotation(row)}
+          emptyTitle="No quotations yet"
+          emptyDescription="Raise your first quotation using the button above."
+          isFilteredEmpty={dateFilteredQuotations.length > 0 && hasActiveFilters}
+          onClearFilters={clearFilters}
         />
       </Card>
 

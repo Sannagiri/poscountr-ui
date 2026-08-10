@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
-import { ListOrdered, MapPin, Minus, Plus, Printer, Trash2 } from 'lucide-react';
+import {
+  Building2,
+  ListOrdered,
+  MapPin,
+  Minus,
+  Plus,
+  Printer,
+  ShoppingBag,
+  ShoppingCart,
+  Trash2,
+  User,
+} from 'lucide-react';
 
 import type { AddAdhocLineValues } from '@/components';
 import {
@@ -14,6 +25,7 @@ import {
   Modal,
   PageHeader,
   SearchInput,
+  SectionCard,
   Select,
   Switch,
   useToast,
@@ -27,6 +39,7 @@ import { describeApiError } from '@/utils/errors';
 import { preventNumberInputScroll } from '@/utils/numberInputScroll';
 import { getSessionMemory, setSessionMemory } from '@/utils/sessionMemory';
 import { breakpoints } from '@/styles/breakpoints';
+import { categoricalPalette, colors } from '@/styles/colors';
 
 import { useAuthStore } from '@/modules/auth';
 import { useBusinesses, useLocations } from '@/modules/businesses';
@@ -42,11 +55,8 @@ import { useOrderSettings } from '@/modules/settings';
 import type { Table } from '@/modules/tables';
 import { TableSelectScreen } from '@/modules/tables';
 
-import {
-  BILLING_ROUTES,
-  ORDER_TYPE_OPTIONS,
-  PAYMENT_METHOD_OPTIONS,
-} from '../constants/billing.constants';
+import { PaymentMethodGrid } from '../components/PaymentMethodGrid';
+import { BILLING_ROUTES, ORDER_TYPE_OPTIONS } from '../constants/billing.constants';
 import { useAutoSelectSingle } from '../hooks/useAutoSelectSingle';
 import { useOrderBill } from '../hooks/useOrderBill';
 import { billingService } from '../services/billingService';
@@ -55,6 +65,7 @@ import type {
   Order,
   OrderLineRequest,
   OrderStatus,
+  OrderType,
   PaymentMethod,
 } from '../types/billing.types';
 import type { OrderCreateFormValues } from '../validations/billing.validation';
@@ -85,6 +96,14 @@ type CartLine =
       quantity: number;
       discountPercent: number;
     };
+
+/** Same accent-per-section idea as `OrderDetailPage`'s `SECTION_ACCENT`, so the creation screen reads as part of the same visual system as the detail page it leads into. */
+const SECTION_ACCENT = {
+  setup: categoricalPalette[0], // blue
+  products: colors.brand.DEFAULT, // brand orange
+  cart: categoricalPalette[2], // aqua
+  customer: categoricalPalette[6], // violet
+} as const;
 
 function lineKey(line: CartLine): string {
   return line.kind === 'product' ? line.product.id : line.key;
@@ -182,6 +201,45 @@ function lineEstimate(line: CartLine): number {
 function estimateTotal(lines: CartLine[], orderDiscountPercent: number): number {
   const preOrderDiscount = lines.reduce((sum, line) => sum + lineEstimate(line), 0);
   return preOrderDiscount * (1 - orderDiscountPercent / 100);
+}
+
+/**
+ * Order type shown as direct always-visible segments instead of a Select dropdown — mirrors the
+ * mobile app's own OrderTypeSelector. Only three options, so surfacing them directly saves the
+ * extra open-the-dropdown tap and shows the current pick at a glance.
+ */
+function OrderTypeSelector({
+  value,
+  onChange,
+}: {
+  value: OrderType;
+  onChange: (value: OrderType) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs font-semibold text-ink-soft">Order type</span>
+      <div className="flex gap-2">
+        {ORDER_TYPE_OPTIONS.map((option) => {
+          const active = option.value === value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => onChange(option.value)}
+              className={cn(
+                'flex-1 rounded-control border px-3 py-2.5 text-sm font-semibold transition-colors',
+                active
+                  ? 'border-brand bg-brand text-white'
+                  : 'border-border bg-white text-ink-soft hover:border-brand/40',
+              )}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -565,6 +623,14 @@ export function NewOrderPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [amountTendered, setAmountTendered] = useState('');
 
+  // Pre-fills with the order's own total — exact change is the common case, so this saves
+  // re-typing the amount that's already right there on screen; still fully editable for a
+  // customer paying a different amount.
+  function openPaymentStep() {
+    if (pendingOrder) setAmountTendered(pendingOrder.total);
+    setPaymentStep(true);
+  }
+
   // Print the bill straight from this modal, before payment is even taken —
   // `printBill` (`useOrderBill.ts`) works for a still-`pending` order via a
   // never-persisted draft preview (real GST split, no real invoice number
@@ -827,7 +893,11 @@ export function NewOrderPage() {
         className="flex flex-col gap-4"
       >
         {isTenantAdmin && (businessOptions.length > 1 || locationOptions.length > 1) ? (
-          <Card>
+          <SectionCard
+            title="Order setup"
+            icon={<Building2 size={16} />}
+            accent={SECTION_ACCENT.setup}
+          >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {businessOptions.length > 1 ? (
                 <Controller
@@ -866,7 +936,7 @@ export function NewOrderPage() {
                 />
               ) : null}
             </div>
-          </Card>
+          </SectionCard>
         ) : null}
 
         {tableLayoutEnabled && !selectedTable ? (
@@ -889,10 +959,15 @@ export function NewOrderPage() {
         ) : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className="flex min-w-0 flex-col gap-4">
-              <Card className="flex min-h-0 flex-1 flex-col">
+              <SectionCard
+                title="Products"
+                icon={<ShoppingBag size={16} />}
+                accent={SECTION_ACCENT.products}
+                className="flex min-h-0 flex-1 flex-col"
+              >
                 {/* Plain block wrapper, not a flex item — `SearchInput`'s own
                 root div ships `flex-1` for its usual row layouts, and inside
-                a column flex container (this Card) that stretches it
+                a column flex container (this SectionCard) that stretches it
                 vertically to fill the whole card instead of staying a
                 normal-height search bar. */}
                 <div className="mb-3 flex shrink-0 items-center gap-2">
@@ -947,7 +1022,7 @@ export function NewOrderPage() {
                           type="button"
                           onClick={() => addToCart(product)}
                           disabled={outOfStock}
-                          className="flex flex-col items-start gap-0.5 rounded-control border border-border p-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent"
+                          className="flex flex-col items-start gap-0.5 rounded-xl border border-border/70 bg-surface-card p-3 text-left shadow-sm transition-all hover:-translate-y-px hover:border-brand/40 hover:bg-brand/5 hover:shadow-card disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-border/70 disabled:hover:bg-surface-card disabled:hover:shadow-sm"
                         >
                           <span className="flex w-full items-center justify-between gap-2">
                             <span className="truncate text-sm font-semibold text-ink">
@@ -980,14 +1055,16 @@ export function NewOrderPage() {
                     })}
                   </div>
                 )}
-              </Card>
+              </SectionCard>
             </div>
 
             <div className="flex min-w-0 flex-col gap-4">
-              <Card className="flex min-h-[220px] flex-col">
-                <p className="mb-3 shrink-0 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                  Cart
-                </p>
+              <SectionCard
+                title="Cart"
+                icon={<ShoppingCart size={16} />}
+                accent={SECTION_ACCENT.cart}
+                className="flex min-h-[220px] flex-col"
+              >
                 {cartLines.length === 0 ? (
                   <p className="flex flex-1 items-center justify-center text-center text-xs text-ink-faint">
                     No items yet — add products from the list on the left.
@@ -1001,7 +1078,7 @@ export function NewOrderPage() {
                           return (
                             <div
                               key={lineKey(line)}
-                              className="flex flex-col gap-1.5 rounded-control border border-border/60 p-2"
+                              className="flex flex-col gap-1.5 rounded-xl border border-border/60 bg-surface/40 p-2 shadow-sm"
                             >
                               <div className="flex items-start gap-2">
                                 <div className="min-w-0 flex-1">
@@ -1121,19 +1198,28 @@ export function NewOrderPage() {
                           label="Apply GST"
                         />
                       </div>
-                      <div className="flex items-center justify-between text-sm font-semibold text-ink">
-                        <span>Estimated total</span>
-                        <span>₹{estimatedTotal.toFixed(2)}</span>
+                      <div
+                        className="flex items-center justify-between rounded-xl px-3 py-2.5"
+                        style={{ backgroundColor: `${SECTION_ACCENT.cart}1a` }}
+                      >
+                        <span className="text-sm font-semibold text-ink">Estimated total</span>
+                        <span
+                          className="text-lg font-extrabold"
+                          style={{ color: SECTION_ACCENT.cart }}
+                        >
+                          ₹{estimatedTotal.toFixed(2)}
+                        </span>
                       </div>
                     </div>
                   </>
                 )}
-              </Card>
+              </SectionCard>
 
-              <Card>
-                <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                  Customer & order details
-                </p>
+              <SectionCard
+                title="Customer & order details"
+                icon={<User size={16} />}
+                accent={SECTION_ACCENT.customer}
+              >
                 <div className="flex flex-col gap-4">
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <Input
@@ -1170,14 +1256,7 @@ export function NewOrderPage() {
                         name="orderType"
                         control={control}
                         render={({ field }) => (
-                          <Select
-                            label="Order type"
-                            options={ORDER_TYPE_OPTIONS}
-                            value={field.value}
-                            onChange={field.onChange}
-                            onBlur={field.onBlur}
-                            name={field.name}
-                          />
+                          <OrderTypeSelector value={field.value} onChange={field.onChange} />
                         )}
                       />
                       {isDineIn ? (
@@ -1186,7 +1265,7 @@ export function NewOrderPage() {
                     </div>
                   )}
                 </div>
-              </Card>
+              </SectionCard>
 
               {/* Fixed (not sticky) below `lg` so the submit action stays
               reachable without scrolling past the cart/customer-details
@@ -1235,14 +1314,6 @@ export function NewOrderPage() {
         footer={
           paymentStep ? (
             <>
-              <Button
-                variant="secondary"
-                leadingIcon={<Printer size={16} />}
-                isLoading={isPrintingBill}
-                onClick={handlePrintBill}
-              >
-                Print bill
-              </Button>
               <Button variant="secondary" onClick={() => setPaymentStep(false)}>
                 Back
               </Button>
@@ -1276,7 +1347,7 @@ export function NewOrderPage() {
                   variant="secondary"
                   className="flex-1"
                   disabled={anyDecisionPending}
-                  onClick={() => setPaymentStep(true)}
+                  onClick={openPaymentStep}
                 >
                   Completed
                 </Button>
@@ -1300,19 +1371,14 @@ export function NewOrderPage() {
               >
                 Print bill
               </Button>
-              <Button onClick={() => setPaymentStep(true)}>Take payment</Button>
+              <Button onClick={openPaymentStep}>Take payment</Button>
             </>
           )
         }
       >
         {paymentStep ? (
           <div className="flex flex-col gap-4">
-            <Select
-              label="Payment method"
-              options={[...PAYMENT_METHOD_OPTIONS]}
-              value={paymentMethod}
-              onChange={(value) => setPaymentMethod(value as PaymentMethod)}
-            />
+            <PaymentMethodGrid value={paymentMethod} onChange={setPaymentMethod} />
             <Input
               label="Amount received"
               type="number"

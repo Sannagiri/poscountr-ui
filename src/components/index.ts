@@ -27,6 +27,7 @@ export * from './Modal';
 export * from './PageHeader';
 export * from './PasswordInput';
 export * from './SearchInput';
+export * from './SectionCard';
 export * from './Select';
 export * from './Switch';
 export * from './Tabs';

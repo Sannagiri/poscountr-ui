@@ -1,13 +1,25 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Eye, ListOrdered, MessageCircle, Printer, Trash2 } from 'lucide-react';
+import {
+  Eye,
+  FileText,
+  History,
+  IndianRupee,
+  ListOrdered,
+  MessageCircle,
+  Plus,
+  Printer,
+  Receipt,
+  Trash2,
+  User,
+  Zap,
+} from 'lucide-react';
 
-import type { AddAdhocLineValues, DataTableColumn, DataTableRowAction } from '@/components';
+import type { AddAdhocLineValues, DataTableColumn } from '@/components';
 import {
   AddAdhocLineModal,
   Badge,
   Button,
-  Card,
   ConfirmDialog,
   DataTable,
   EmptyState,
@@ -16,7 +28,7 @@ import {
   Modal,
   PageHeader,
   SearchInput,
-  Select,
+  SectionCard,
   Switch,
   useToast,
   WayBillUpload,
@@ -26,6 +38,7 @@ import { cn } from '@/utils/cn';
 import { formatTimestamp } from '@/utils/date';
 import { describeApiError } from '@/utils/errors';
 import { statusLabel, toneForStatus } from '@/utils/status';
+import { categoricalPalette, colors } from '@/styles/colors';
 
 import { useAuthStore } from '@/modules/auth';
 import type { Product } from '@/modules/inventory';
@@ -38,13 +51,13 @@ import {
 } from '@/modules/inventory';
 
 import { OrderBillPreviewModal } from '../components/OrderBillPreviewModal';
+import { PaymentMethodGrid } from '../components/PaymentMethodGrid';
 import {
   BILLING_QUERY_KEYS,
   BILLING_ROUTES,
   canCancel,
   nextStatusFor,
   ORDER_TYPE_OPTIONS,
-  PAYMENT_METHOD_OPTIONS,
   roleMayTransition,
   TRANSITION_ACTION_LABELS,
 } from '../constants/billing.constants';
@@ -65,6 +78,27 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 const ORDER_TYPE_LABELS: Record<string, string> = Object.fromEntries(
   ORDER_TYPE_OPTIONS.map((option) => [option.value, option.label]),
 );
+
+/** One accent hue per section card, pulled from the app's validated categorical palette so every section reads as a distinct block instead of a wall of identical white cards. */
+const SECTION_ACCENT = {
+  orderDetails: categoricalPalette[0], // blue
+  customer: categoricalPalette[6], // violet
+  items: colors.brand.DEFAULT, // brand orange
+  actions: categoricalPalette[2], // aqua
+  totals: colors.success.DEFAULT, // green
+  wayBill: categoricalPalette[3], // yellow
+  timeline: categoricalPalette[4], // magenta
+} as const;
+
+const TIMELINE_STEP_COLOR: Record<string, string> = {
+  'Order placed': colors.ink.faint,
+  'Sent to kitchen': colors.accent.DEFAULT,
+  Preparing: colors.accent.DEFAULT,
+  Ready: colors.success.DEFAULT,
+  Delivered: colors.success.DEFAULT,
+  Completed: colors.success.DEFAULT,
+  Cancelled: colors.danger.DEFAULT,
+};
 
 /** Maps a transition target to the `billingService` method that drives it. `completed` is handled separately below since it's the one transition that needs a payment method. */
 const TARGET_TO_SERVICE_CALL: Record<
@@ -149,6 +183,11 @@ export function OrderDetailPage() {
   // being built (order-level at creation, per-line when a line was added).
   const [pendingComplete, setPendingComplete] = useState(false);
   const [completionPaymentMethod, setCompletionPaymentMethod] = useState<PaymentMethod>('cash');
+  // Editable, not just a read-only "amount to collect" line — the actual amount handed over can
+  // differ from the order total (a goodwill discount given verbally, a friends/family price),
+  // same reasoning New Order's own amount-received field already applies. Purely a cashier UX
+  // aid (change-due math) — never sent to the completion API, which only takes payment_method.
+  const [completionAmountTendered, setCompletionAmountTendered] = useState('');
   // No phone on the order (a walk-in without `customerPhoneRequired`) — ask
   // for one right here instead of sending nowhere. Cancelling/leaving it
   // blank sends nothing, per how this was asked for — no fallback, no retry.
@@ -402,6 +441,15 @@ export function OrderDetailPage() {
   // `order.total` already reflects every discount (item-level + order-level)
   // — both were set while the order was being built, nothing left to net out.
   const completionAmountToCollect = Number(order.total);
+  const completionChangeDue = Math.max(
+    0,
+    Number(completionAmountTendered || 0) - completionAmountToCollect,
+  );
+
+  function openCompleteModal() {
+    setCompletionAmountTendered(order.total);
+    setPendingComplete(true);
+  }
 
   const addableProducts = (productsQuery.data ?? []).filter((product) => {
     if (product.businessId !== order.businessId) return false;
@@ -457,17 +505,29 @@ export function OrderDetailPage() {
     );
   }
 
-  function getItemRowActions(item: OrderItem): DataTableRowAction<OrderItem>[] {
-    return [
-      {
-        label: 'Remove item',
-        icon: Trash2,
-        destructive: true,
-        onSelect: () => removeItemMutation.mutate(item.id),
-        disabled: () => removeItemMutation.isPending,
-      },
-    ];
-  }
+  // Only ever one action on an item line (remove), so it's a direct icon
+  // button in its own column instead of a "⋮" menu with a single entry.
+  const itemColumnsForDisplay: DataTableColumn<OrderItem>[] = canEditItems
+    ? [
+        ...itemColumns,
+        {
+          key: 'remove',
+          header: '',
+          width: '52px',
+          align: 'center',
+          render: (item) => (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Remove item"
+              leadingIcon={<Trash2 size={14} className="text-danger" />}
+              isLoading={removeItemMutation.isPending && removeItemMutation.variables === item.id}
+              onClick={() => removeItemMutation.mutate(item.id)}
+            />
+          ),
+        },
+      ]
+    : itemColumns;
 
   // Only the statuses this order has actually reached, in the order the
   // fields appear on the model — `cancelledAt` and `completedAt` never both
@@ -484,6 +544,182 @@ export function OrderDetailPage() {
       { label: 'Cancelled', timestamp: order.cancelledAt },
     ] as { label: string; timestamp: string | null }[]
   ).filter((step): step is { label: string; timestamp: string } => Boolean(step.timestamp));
+
+  const addProductSection = canEditItems ? (
+    <div className="mt-4 border-t border-border pt-4">
+      <div className="mb-3 flex items-center gap-1.5">
+        <span
+          className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-white"
+          style={{ backgroundColor: SECTION_ACCENT.items }}
+        >
+          <Plus size={10} />
+        </span>
+        <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">Add a product</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <SearchInput
+            value={addItemSearch}
+            onChange={(event) => setAddItemSearch(event.target.value)}
+            placeholder="Search products to add…"
+          />
+        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="h-10 shrink-0"
+          onClick={() => setAdhocModalOpen(true)}
+        >
+          + Custom line
+        </Button>
+      </div>
+      {addableProducts.length === 0 ? (
+        <p className="mt-3 text-xs text-ink-faint">No matching products.</p>
+      ) : (
+        <div className="mt-3 grid max-h-72 grid-cols-1 gap-2 overflow-auto pr-1 sm:grid-cols-2">
+          {addableProducts.map((product) => {
+            const stockLabel = getStockLabel(product, order.locationId);
+            const outOfStock = getAvailableStock(product, order.locationId) === 0;
+            return (
+              <button
+                key={product.id}
+                type="button"
+                onClick={() => handleAddProduct(product)}
+                disabled={addItemMutation.isPending || outOfStock}
+                className="flex flex-col items-start gap-0.5 rounded-control border border-border p-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent"
+              >
+                <span className="flex w-full items-center justify-between gap-2">
+                  <span className="truncate text-sm font-semibold text-ink">{product.name}</span>
+                  {existingProductIds.has(product.id) ? (
+                    <Badge tone="accent">In order</Badge>
+                  ) : null}
+                </span>
+                <span className="flex w-full items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-brand">
+                    ₹{product.effectiveSellingPrice}
+                  </span>
+                  {stockLabel ? (
+                    <span
+                      className={cn(
+                        'shrink-0 text-[11px] font-medium',
+                        getStockTone(product, order.locationId) === 'danger' && 'text-danger',
+                        getStockTone(product, order.locationId) === 'warning' &&
+                          'text-warning-text',
+                        getStockTone(product, order.locationId) === 'faint' && 'text-ink-faint',
+                      )}
+                    >
+                      {stockLabel}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  const itemsTable = (
+    <DataTable
+      columns={itemColumnsForDisplay}
+      data={order.items}
+      getRowKey={(item) => item.id}
+      getSearchValue={(item) => item.name}
+      searchPlaceholder="Search items…"
+      emptyTitle="No items on this order yet"
+      maxBodyHeight={320}
+    />
+  );
+
+  const actionButtons = (
+    <>
+      {mayAdvance && nextTarget ? (
+        <Button
+          isLoading={transitionMutation.isPending && transitionMutation.variables === nextTarget}
+          disabled={transitionMutation.isPending}
+          onClick={() =>
+            nextTarget === 'completed' ? openCompleteModal() : transitionMutation.mutate(nextTarget)
+          }
+        >
+          {TRANSITION_ACTION_LABELS[nextTarget]}
+        </Button>
+      ) : null}
+      {/* Available at every status, not just `completed` —
+          `useOrderBill.ts`'s `previewBill` falls back to a
+          never-persisted draft preview (real GST split, no real
+          invoice number burned) for anything short of completed,
+          so there's no need to wait for the order to finish
+          before seeing/printing what the bill will look like. */}
+      <Button
+        variant="secondary"
+        leadingIcon={<Eye size={16} />}
+        onClick={() => setShowBillPreview(true)}
+      >
+        Preview bill
+      </Button>
+      <Button
+        variant="secondary"
+        leadingIcon={<Printer size={16} />}
+        isLoading={isPrintingBill}
+        onClick={handlePrintBill}
+      >
+        Print bill
+      </Button>
+      {order.status === 'completed' ? (
+        <Button
+          variant="secondary"
+          leadingIcon={<MessageCircle size={16} />}
+          isLoading={sendWhatsappMutation.isPending}
+          onClick={handleSendWhatsapp}
+        >
+          Send via WhatsApp
+        </Button>
+      ) : null}
+      {mayCancelWithRole ? (
+        <Button
+          variant="secondary"
+          disabled={transitionMutation.isPending}
+          onClick={() => setPendingCancel(true)}
+        >
+          Cancel order
+        </Button>
+      ) : null}
+    </>
+  );
+  const showActionsCard = mayAdvance || mayCancelWithRole || order.status === 'completed';
+
+  const gstToggle = (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-xs font-medium text-ink-soft">Apply GST</span>
+      <Switch
+        size="sm"
+        checked={order.applyGst}
+        disabled={!canEditItems || setApplyGstMutation.isPending}
+        onCheckedChange={(checked) => setApplyGstMutation.mutate(checked)}
+        label="Apply GST"
+      />
+    </div>
+  );
+  const totalsBreakdown = (
+    <>
+      <div className="flex justify-between text-ink-soft">
+        <span>Subtotal</span>
+        <span>₹{order.subtotal}</span>
+      </div>
+      {Number(order.discountPercent) > 0 ? (
+        <div className="flex justify-between text-danger">
+          <span>Order discount ({order.discountPercent}%)</span>
+          <span>-₹{order.discountAmount}</span>
+        </div>
+      ) : null}
+      <div className="flex justify-between text-ink-soft">
+        <span>Tax</span>
+        <span>₹{order.taxTotal}</span>
+      </div>
+    </>
+  );
 
   return (
     <div>
@@ -514,10 +750,11 @@ export function OrderDetailPage() {
             full page) so it doesn't crowd out the sidebar beside it.
           */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Card>
-              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                Order info
-              </p>
+            <SectionCard
+              title="Order details"
+              icon={<Receipt size={16} />}
+              accent={SECTION_ACCENT.orderDetails}
+            >
               <div className="flex flex-col gap-1.5 text-sm">
                 <div className="flex justify-between">
                   <span className="text-ink-soft">Order #</span>
@@ -548,12 +785,13 @@ export function OrderDetailPage() {
                   <span className="font-medium text-ink">{formatTimestamp(order.createdAt)}</span>
                 </div>
               </div>
-            </Card>
+            </SectionCard>
 
-            <Card>
-              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                Customer
-              </p>
+            <SectionCard
+              title="Customer"
+              icon={<User size={16} />}
+              accent={SECTION_ACCENT.customer}
+            >
               <div className="flex flex-col gap-1 text-sm text-ink">
                 <p className="font-medium">{order.customerName || 'Walk-in'}</p>
                 <p className="text-ink-soft">{order.customerPhone}</p>
@@ -567,210 +805,81 @@ export function OrderDetailPage() {
                   <p className="mt-2 text-xs text-ink-faint">Note: {order.note}</p>
                 ) : null}
               </div>
-            </Card>
+            </SectionCard>
           </div>
 
-          <Card>
-            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-              Items{order.items.length ? ` (${order.items.length})` : ''}
-            </p>
-            <DataTable
-              columns={itemColumns}
-              data={order.items}
-              getRowKey={(item) => item.id}
-              getSearchValue={(item) => item.name}
-              searchPlaceholder="Search items…"
-              emptyTitle="No items on this order yet"
-              rowActions={canEditItems ? getItemRowActions : undefined}
-              maxBodyHeight={320}
-            />
-
-            {canEditItems ? (
-              <div className="mt-4 border-t border-border pt-4">
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">
-                    Add a product
-                  </p>
-                  <Button variant="secondary" size="sm" onClick={() => setAdhocModalOpen(true)}>
-                    + Add custom line
-                  </Button>
-                </div>
-                <div>
-                  <SearchInput
-                    value={addItemSearch}
-                    onChange={(event) => setAddItemSearch(event.target.value)}
-                    placeholder="Search products to add…"
-                  />
-                </div>
-                {addableProducts.length === 0 ? (
-                  <p className="mt-3 text-xs text-ink-faint">No matching products.</p>
-                ) : (
-                  <div className="mt-3 grid max-h-72 grid-cols-1 gap-2 overflow-auto pr-1 sm:grid-cols-2">
-                    {addableProducts.map((product) => {
-                      const stockLabel = getStockLabel(product, order.locationId);
-                      const outOfStock = getAvailableStock(product, order.locationId) === 0;
-                      return (
-                        <button
-                          key={product.id}
-                          type="button"
-                          onClick={() => handleAddProduct(product)}
-                          disabled={addItemMutation.isPending || outOfStock}
-                          className="flex flex-col items-start gap-0.5 rounded-control border border-border p-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent"
-                        >
-                          <span className="flex w-full items-center justify-between gap-2">
-                            <span className="truncate text-sm font-semibold text-ink">
-                              {product.name}
-                            </span>
-                            {existingProductIds.has(product.id) ? (
-                              <Badge tone="accent">In order</Badge>
-                            ) : null}
-                          </span>
-                          <span className="flex w-full items-center justify-between gap-2">
-                            <span className="text-sm font-semibold text-brand">
-                              ₹{product.effectiveSellingPrice}
-                            </span>
-                            {stockLabel ? (
-                              <span
-                                className={cn(
-                                  'shrink-0 text-[11px] font-medium',
-                                  getStockTone(product, order.locationId) === 'danger' &&
-                                    'text-danger',
-                                  getStockTone(product, order.locationId) === 'warning' &&
-                                    'text-warning-text',
-                                  getStockTone(product, order.locationId) === 'faint' &&
-                                    'text-ink-faint',
-                                )}
-                              >
-                                {stockLabel}
-                              </span>
-                            ) : null}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            ) : null}
-          </Card>
+          <SectionCard
+            title={`Items${order.items.length ? ` (${order.items.length})` : ''}`}
+            icon={<Receipt size={16} />}
+            accent={SECTION_ACCENT.items}
+          >
+            {itemsTable}
+            {addProductSection}
+          </SectionCard>
         </div>
 
         <div className="flex flex-col gap-4">
-          {mayAdvance || mayCancelWithRole || order.status === 'completed' ? (
-            <Card>
-              <div className="flex flex-col gap-2">
-                {mayAdvance && nextTarget ? (
-                  <Button
-                    isLoading={
-                      transitionMutation.isPending && transitionMutation.variables === nextTarget
-                    }
-                    disabled={transitionMutation.isPending}
-                    onClick={() =>
-                      nextTarget === 'completed'
-                        ? setPendingComplete(true)
-                        : transitionMutation.mutate(nextTarget)
-                    }
-                  >
-                    {TRANSITION_ACTION_LABELS[nextTarget]}
-                  </Button>
-                ) : null}
-                {/* Available at every status, not just `completed` —
-                    `useOrderBill.ts`'s `previewBill` falls back to a
-                    never-persisted draft preview (real GST split, no real
-                    invoice number burned) for anything short of completed,
-                    so there's no need to wait for the order to finish
-                    before seeing/printing what the bill will look like. */}
-                <Button
-                  variant="secondary"
-                  leadingIcon={<Eye size={16} />}
-                  onClick={() => setShowBillPreview(true)}
-                >
-                  Preview bill
-                </Button>
-                <Button
-                  variant="secondary"
-                  leadingIcon={<Printer size={16} />}
-                  isLoading={isPrintingBill}
-                  onClick={handlePrintBill}
-                >
-                  Print bill
-                </Button>
-                {order.status === 'completed' ? (
-                  <Button
-                    variant="secondary"
-                    leadingIcon={<MessageCircle size={16} />}
-                    isLoading={sendWhatsappMutation.isPending}
-                    onClick={handleSendWhatsapp}
-                  >
-                    Send via WhatsApp
-                  </Button>
-                ) : null}
-                {mayCancelWithRole ? (
-                  <Button
-                    variant="secondary"
-                    disabled={transitionMutation.isPending}
-                    onClick={() => setPendingCancel(true)}
-                  >
-                    Cancel order
-                  </Button>
-                ) : null}
-              </div>
-            </Card>
+          {showActionsCard ? (
+            <SectionCard title="Actions" icon={<Zap size={16} />} accent={SECTION_ACCENT.actions}>
+              <div className="flex flex-col gap-2">{actionButtons}</div>
+            </SectionCard>
           ) : null}
 
-          <Card>
-            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">Totals</p>
+          <SectionCard
+            title="Totals"
+            icon={<IndianRupee size={16} />}
+            accent={SECTION_ACCENT.totals}
+          >
             <div className="flex flex-col gap-1.5 text-sm">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-ink-soft">Apply GST</span>
-                <Switch
-                  size="sm"
-                  checked={order.applyGst}
-                  disabled={!canEditItems || setApplyGstMutation.isPending}
-                  onCheckedChange={(checked) => setApplyGstMutation.mutate(checked)}
-                  label="Apply GST"
-                />
-              </div>
-              <div className="flex justify-between text-ink-soft">
-                <span>Subtotal</span>
-                <span>₹{order.subtotal}</span>
-              </div>
-              {Number(order.discountPercent) > 0 ? (
-                <div className="flex justify-between text-danger">
-                  <span>Order discount ({order.discountPercent}%)</span>
-                  <span>-₹{order.discountAmount}</span>
-                </div>
-              ) : null}
-              <div className="flex justify-between text-ink-soft">
-                <span>Tax</span>
-                <span>₹{order.taxTotal}</span>
-              </div>
-              <div className="flex justify-between border-t border-border pt-1.5 font-semibold text-ink">
-                <span>Total</span>
-                <span>₹{order.total}</span>
+              {gstToggle}
+              {totalsBreakdown}
+              <div
+                className="mt-1.5 flex items-center justify-between rounded-xl px-3 py-2.5"
+                style={{ backgroundColor: `${SECTION_ACCENT.totals}1a` }}
+              >
+                <span className="text-sm font-semibold text-ink">Total</span>
+                <span className="text-lg font-extrabold" style={{ color: SECTION_ACCENT.totals }}>
+                  ₹{order.total}
+                </span>
               </div>
             </div>
-          </Card>
+          </SectionCard>
 
-          <Card>
+          <SectionCard
+            title="Way-bill"
+            icon={<FileText size={16} />}
+            accent={SECTION_ACCENT.wayBill}
+          >
             <WayBillUpload
               url={order.wayBillUrl}
               uploadedAt={order.wayBillUploadedAt}
               onUpload={(file) => uploadWayBillMutation.mutateAsync(file)}
               onRemove={() => removeWayBillMutation.mutateAsync()}
             />
-          </Card>
+          </SectionCard>
 
           {timelineSteps.length > 1 ? (
-            <Card>
-              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                Timeline
-              </p>
-              <div className="flex flex-col gap-2.5">
-                {timelineSteps.map((step) => (
-                  <div key={step.label} className="flex items-center gap-2.5">
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
-                    <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+            <SectionCard
+              title="Timeline"
+              icon={<History size={16} />}
+              accent={SECTION_ACCENT.timeline}
+            >
+              <div className="flex flex-col">
+                {timelineSteps.map((step, index) => (
+                  <div key={step.label} className="flex gap-2.5">
+                    <div className="flex flex-col items-center">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor: TIMELINE_STEP_COLOR[step.label] ?? colors.ink.faint,
+                          boxShadow: `0 0 0 4px ${TIMELINE_STEP_COLOR[step.label] ?? colors.ink.faint}1a`,
+                        }}
+                      />
+                      {index < timelineSteps.length - 1 ? (
+                        <span className="w-px flex-1 bg-border" />
+                      ) : null}
+                    </div>
+                    <div className="flex min-w-0 flex-1 items-center justify-between gap-2 pb-3">
                       <span className="text-sm font-medium text-ink">{step.label}</span>
                       <span className="shrink-0 text-xs text-ink-faint">
                         {formatTimestamp(step.timestamp)}
@@ -779,7 +888,7 @@ export function OrderDetailPage() {
                   </div>
                 ))}
               </div>
-            </Card>
+            </SectionCard>
           ) : null}
         </div>
       </div>
@@ -820,12 +929,24 @@ export function OrderDetailPage() {
         }
       >
         <div className="flex flex-col gap-4">
-          <Select
-            label="Payment method"
-            options={[...PAYMENT_METHOD_OPTIONS]}
+          <PaymentMethodGrid
             value={completionPaymentMethod}
-            onChange={(value) => setCompletionPaymentMethod(value as PaymentMethod)}
+            onChange={setCompletionPaymentMethod}
           />
+          <Input
+            label="Amount received"
+            type="number"
+            inputMode="decimal"
+            value={completionAmountTendered}
+            onChange={(event) => setCompletionAmountTendered(event.target.value)}
+            placeholder={completionAmountToCollect.toFixed(2)}
+          />
+          {completionAmountTendered ? (
+            <p className="text-sm text-ink-soft">
+              Change due:{' '}
+              <span className="font-semibold text-ink">₹{completionChangeDue.toFixed(2)}</span>
+            </p>
+          ) : null}
         </div>
       </Modal>
 

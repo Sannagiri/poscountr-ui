@@ -1,17 +1,26 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
-import { ListOrdered, Minus, Plus, Trash2 } from 'lucide-react';
+import {
+  Building2,
+  ListOrdered,
+  Minus,
+  Plus,
+  ShoppingBag,
+  ShoppingCart,
+  Trash2,
+  User,
+} from 'lucide-react';
 
 import type { AddAdhocLineValues } from '@/components';
 import {
   AddAdhocLineModal,
   Button,
-  Card,
   EmptyState,
   Input,
   PageHeader,
   SearchInput,
+  SectionCard,
   Select,
   useToast,
 } from '@/components';
@@ -19,6 +28,7 @@ import { cn } from '@/utils/cn';
 import { describeApiError } from '@/utils/errors';
 import { preventNumberInputScroll } from '@/utils/numberInputScroll';
 import { getSessionMemory, setSessionMemory } from '@/utils/sessionMemory';
+import { categoricalPalette, colors } from '@/styles/colors';
 
 import { useAuthStore } from '@/modules/auth';
 import { INDIAN_STATE_OPTIONS, useBusinesses, useLocations } from '@/modules/businesses';
@@ -51,6 +61,14 @@ type CartLine =
       quantity: number;
       discountPercent: number;
     };
+
+/** Same accent-per-section idea as `NewOrderPage`'s own `SECTION_ACCENT`, so this creation screen reads as part of the same visual system as the Quotation detail page it leads into. */
+const SECTION_ACCENT = {
+  setup: categoricalPalette[0], // blue
+  products: colors.brand.DEFAULT, // brand orange
+  cart: categoricalPalette[2], // aqua
+  customer: categoricalPalette[6], // violet
+} as const;
 
 function lineKey(line: CartLine): string {
   return line.kind === 'product' ? line.product.id : line.key;
@@ -362,7 +380,11 @@ export function NewQuotationPage() {
 
       <div className="flex flex-col gap-4">
         {isTenantAdmin && (businessOptions.length > 1 || locationOptions.length > 1) ? (
-          <Card>
+          <SectionCard
+            title="Order setup"
+            icon={<Building2 size={16} />}
+            accent={SECTION_ACCENT.setup}
+          >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {businessOptions.length > 1 ? (
                 <Controller
@@ -401,12 +423,17 @@ export function NewQuotationPage() {
                 />
               ) : null}
             </div>
-          </Card>
+          </SectionCard>
         ) : null}
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-4">
-            <Card className="flex min-h-0 flex-1 flex-col">
+            <SectionCard
+              title="Products"
+              icon={<ShoppingBag size={16} />}
+              accent={SECTION_ACCENT.products}
+              className="flex min-h-0 flex-1 flex-col"
+            >
               <div className="mb-3 flex shrink-0 items-center gap-2">
                 <div className="min-w-0 flex-1">
                   <SearchInput
@@ -455,7 +482,7 @@ export function NewQuotationPage() {
                         type="button"
                         onClick={() => addToCart(product)}
                         disabled={outOfStock}
-                        className="flex flex-col items-start gap-0.5 rounded-control border border-border p-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent"
+                        className="flex flex-col items-start gap-0.5 rounded-xl border border-border/70 bg-surface-card p-3 text-left shadow-sm transition-all hover:-translate-y-px hover:border-brand/40 hover:bg-brand/5 hover:shadow-card disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-border/70 disabled:hover:bg-surface-card disabled:hover:shadow-sm"
                       >
                         <span className="flex w-full items-center justify-between gap-2">
                           <span className="truncate text-sm font-semibold text-ink">
@@ -487,14 +514,16 @@ export function NewQuotationPage() {
                   })}
                 </div>
               )}
-            </Card>
+            </SectionCard>
           </div>
 
           <div className="flex min-w-0 flex-col gap-4">
-            <Card className="flex min-h-[220px] flex-col">
-              <p className="mb-3 shrink-0 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                Quoted items
-              </p>
+            <SectionCard
+              title="Quoted items"
+              icon={<ShoppingCart size={16} />}
+              accent={SECTION_ACCENT.cart}
+              className="flex min-h-[220px] flex-col"
+            >
               {cartLines.length === 0 ? (
                 <p className="flex flex-1 items-center justify-center text-center text-xs text-ink-faint">
                   No items yet — add products from the list on the left.
@@ -508,7 +537,7 @@ export function NewQuotationPage() {
                         return (
                           <div
                             key={lineKey(line)}
-                            className="flex flex-col gap-1.5 rounded-control border border-border/60 p-2"
+                            className="flex flex-col gap-1.5 rounded-xl border border-border/60 bg-surface/40 p-2 shadow-sm"
                           >
                             <div className="flex items-start gap-2">
                               <div className="min-w-0 flex-1">
@@ -614,19 +643,28 @@ export function NewQuotationPage() {
                         <span className="text-xs text-ink-faint">%</span>
                       </div>
                     </div>
-                    <div className="flex items-center justify-between text-sm font-semibold text-ink">
-                      <span>Estimated total</span>
-                      <span>₹{estimatedTotal.toFixed(2)}</span>
+                    <div
+                      className="flex items-center justify-between rounded-xl px-3 py-2.5"
+                      style={{ backgroundColor: `${SECTION_ACCENT.cart}1a` }}
+                    >
+                      <span className="text-sm font-semibold text-ink">Estimated total</span>
+                      <span
+                        className="text-lg font-extrabold"
+                        style={{ color: SECTION_ACCENT.cart }}
+                      >
+                        ₹{estimatedTotal.toFixed(2)}
+                      </span>
                     </div>
                   </div>
                 </>
               )}
-            </Card>
+            </SectionCard>
 
-            <Card>
-              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-faint">
-                Customer & quotation details
-              </p>
+            <SectionCard
+              title="Customer & quotation details"
+              icon={<User size={16} />}
+              accent={SECTION_ACCENT.customer}
+            >
               <div className="flex flex-col gap-4">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Input
@@ -682,7 +720,7 @@ export function NewQuotationPage() {
                 </div>
                 <Input label="Note (optional)" {...register('note')} />
               </div>
-            </Card>
+            </SectionCard>
 
             <Button
               type="button"
