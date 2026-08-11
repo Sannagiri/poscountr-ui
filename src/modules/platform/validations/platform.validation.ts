@@ -32,6 +32,10 @@ export const updateTenantSchema = z.object({
   licenseValidFrom: z.string().optional().or(z.literal('')),
   licenseValidUntil: z.string().optional().or(z.literal('')),
   enforcementMode: z.enum(['lenient', 'strict']),
+  allowedEntityTypes: z.array(
+    z.enum(['restaurant', 'retail', 'pharmacy', 'grocery', 'cafe', 'other']),
+  ),
+  enabledModules: z.array(z.enum(['payment_terminals', 'reports'])),
 });
 
 export type UpdateTenantFormValues = z.infer<typeof updateTenantSchema>;

@@ -9,6 +9,16 @@ export interface EntityTypePickerProps {
   onChange: (value: EntityType) => void;
   errorMessage?: string;
   label?: string;
+  /**
+   * Restricts the offered options to this tenant's `allowedEntityTypes`
+   * (Ultra Admin-set, `useAuthStore`'s `CurrentUser.allowedEntityTypes`).
+   * Undefined shows every type (used where the caller doesn't have tenant
+   * context, e.g. the import-template picker). The current `value` is always
+   * kept selectable even if it falls outside the list, so editing an
+   * existing business whose type was since disallowed never hides its own
+   * selection.
+   */
+  allowedTypes?: EntityType[];
 }
 
 /**
@@ -26,14 +36,20 @@ export function EntityTypePicker({
   onChange,
   errorMessage,
   label = 'Business type',
+  allowedTypes,
 }: EntityTypePickerProps) {
   const hasError = Boolean(errorMessage);
+  const options = allowedTypes
+    ? ENTITY_TYPE_OPTIONS.filter(
+        (option) => option.value === value || allowedTypes.includes(option.value),
+      )
+    : ENTITY_TYPE_OPTIONS;
 
   return (
     <div className="flex flex-col gap-1.5">
       {label ? <span className="text-xs font-semibold text-ink-soft">{label}</span> : null}
       <div role="radiogroup" aria-label={label} className="grid grid-cols-3 gap-2">
-        {ENTITY_TYPE_OPTIONS.map((option) => {
+        {options.map((option) => {
           const isSelected = value === option.value;
           return (
             <button

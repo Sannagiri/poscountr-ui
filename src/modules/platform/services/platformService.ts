@@ -1,5 +1,7 @@
 import { apiClient, unwrap } from '@/services/apiClient';
 
+import type { EntityType } from '@/modules/businesses/types/businesses.types';
+
 import type {
   AddTenantAdminRequest,
   AuditLogEntry,
@@ -9,6 +11,7 @@ import type {
   EnforcementMode,
   LicenseType,
   LicenseTypeRequest,
+  ModuleKey,
   PlatformAdmin,
   Tenant,
   TenantAdmin,
@@ -32,6 +35,8 @@ interface TenantRaw {
   status: Tenant['status'];
   is_active: boolean;
   enforcement_mode: EnforcementMode;
+  allowed_entity_types: EntityType[];
+  enabled_modules: ModuleKey[];
   license_type_id: string | null;
   license_type_name: string | null;
   license_valid_from: string | null;
@@ -52,6 +57,8 @@ function mapTenant(raw: TenantRaw): Tenant {
     status: raw.status,
     isActive: raw.is_active,
     enforcementMode: raw.enforcement_mode,
+    allowedEntityTypes: raw.allowed_entity_types,
+    enabledModules: raw.enabled_modules,
     licenseTypeId: raw.license_type_id,
     licenseTypeName: raw.license_type_name,
     licenseValidFrom: raw.license_valid_from,
@@ -194,6 +201,8 @@ export const platformService = {
         license_valid_from: request.licenseValidFrom,
         license_valid_until: request.licenseValidUntil,
         enforcement_mode: request.enforcementMode,
+        allowed_entity_types: request.allowedEntityTypes,
+        enabled_modules: request.enabledModules,
       }),
     );
     return mapTenant(raw);

@@ -5,6 +5,7 @@ import { ChevronDown, ShieldCheck } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 import type { UserRole } from '@/modules/auth';
+import { useAuthStore } from '@/modules/auth';
 import {
   isPurchasingEntityType,
   isQuotationEligibleEntityType,
@@ -12,7 +13,12 @@ import {
 } from '@/modules/businesses';
 
 import type { NavItem } from './navConfig';
-import { filterByPurchasingGate, filterByQuotationGate, navGroupsForRole } from './navConfig';
+import {
+  filterByModuleGate,
+  filterByPurchasingGate,
+  filterByQuotationGate,
+  navGroupsForRole,
+} from './navConfig';
 
 export interface SidebarProps {
   role: UserRole;
@@ -42,6 +48,9 @@ const LEAF_LINK_ACTIVE_CLASSES =
 export function Sidebar({ role, variant = 'desktop' }: SidebarProps) {
   const location = useLocation();
 
+  const rawEnabledModules = useAuthStore((state) => state.user?.enabledModules);
+  const enabledModules = new Set(rawEnabledModules ?? []);
+
   // `useBusinesses` is `IsTenantAdmin`-gated server-side — a manager can't
   // call it at all, so `hasPurchasingBusiness` stays `true` for them (see
   // `filterByPurchasingGate`'s own doc comment on why that's the right
@@ -58,9 +67,12 @@ export function Sidebar({ role, variant = 'desktop' }: SidebarProps) {
       ? true
       : businessesQuery.data.some((business) => isQuotationEligibleEntityType(business.entityType));
 
-  const groups = filterByQuotationGate(
-    filterByPurchasingGate(navGroupsForRole(role), hasPurchasingBusiness),
-    hasQuotationBusiness,
+  const groups = filterByModuleGate(
+    filterByQuotationGate(
+      filterByPurchasingGate(navGroupsForRole(role), hasPurchasingBusiness),
+      hasQuotationBusiness,
+    ),
+    enabledModules,
   );
 
   return (

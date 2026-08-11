@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 
 import type { UserRole } from '@/modules/auth';
+import type { ModuleKey } from '@/modules/platform';
 
 export interface NavItem {
   label: string;
@@ -61,6 +62,14 @@ export interface NavItem {
    * — just the opposite (deny-list) direction of business-type check.
    */
   requiresQuotationBusiness?: boolean;
+  /**
+   * Only reachable when the acting tenant has this optional module enabled
+   * (`Tenant.enabled_modules`, set by the Ultra Admin per tenant, independent
+   * of role/business type). `Sidebar` applies this via `filterByModuleGate`,
+   * same mechanism as `requiresPurchasingBusiness`/`requiresQuotationBusiness`
+   * — just keyed off the tenant's module list instead of business type.
+   */
+  requiresModule?: ModuleKey;
 }
 
 export interface NavGroup {
@@ -182,6 +191,7 @@ export const OWNER_NAV_GROUPS: NavGroup[] = [
         path: '/payment-terminals',
         icon: <CreditCard size={ICON_SIZE} />,
         roles: ['tenant_admin'],
+        requiresModule: 'payment_terminals',
       },
       {
         // "Can only be created by tenant admins and can be used by anyone"
@@ -213,6 +223,7 @@ export const OWNER_NAV_GROUPS: NavGroup[] = [
         path: '/reports',
         icon: <BarChart3 size={ICON_SIZE} />,
         roles: ['tenant_admin', 'manager'],
+        requiresModule: 'reports',
         children: [
           {
             label: 'Sales Reports',
@@ -406,6 +417,33 @@ export function filterByQuotationGate(
     .map((group) => ({
       ...group,
       items: filterByQuotationGateItems(group.items, hasQuotationBusiness),
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
+function filterByModuleGateItems(items: NavItem[], enabledModules: Set<ModuleKey>): NavItem[] {
+  return items
+    .filter((item) => !item.requiresModule || enabledModules.has(item.requiresModule))
+    .map((item) =>
+      item.children
+        ? { ...item, children: filterByModuleGateItems(item.children, enabledModules) }
+        : item,
+    );
+}
+
+/**
+ * Applied on top of `navGroupsForRole`'s own role filter — drops every
+ * `requiresModule` entry (Payment Terminals, Reports) unless the caller's
+ * tenant has that module enabled. `Sidebar` resolves `enabledModules` from
+ * `useAuthStore`'s `CurrentUser.enabledModules` (populated by `/auth/me/`),
+ * same shape as `filterByPurchasingGate`/`filterByQuotationGate` but keyed
+ * off the tenant's module list instead of a resolved business type.
+ */
+export function filterByModuleGate(groups: NavGroup[], enabledModules: Set<ModuleKey>): NavGroup[] {
+  return groups
+    .map((group) => ({
+      ...group,
+      items: filterByModuleGateItems(group.items, enabledModules),
     }))
     .filter((group) => group.items.length > 0);
 }

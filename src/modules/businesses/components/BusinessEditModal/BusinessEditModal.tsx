@@ -3,6 +3,8 @@ import { Controller, useForm } from 'react-hook-form';
 
 import { Button, Input, Modal, Select } from '@/components';
 
+import { useAuthStore } from '@/modules/auth';
+
 import { INDIAN_STATE_OPTIONS } from '../../constants/businesses.constants';
 import type { BusinessEntity } from '../../types/businesses.types';
 import type { BusinessFormValues } from '../../validations/businesses.validation';
@@ -48,6 +50,7 @@ export function BusinessEditModal({
   submitError,
 }: BusinessEditModalProps) {
   const isEditing = Boolean(business);
+  const allowedEntityTypes = useAuthStore((state) => state.user?.allowedEntityTypes);
 
   const {
     register,
@@ -117,6 +120,7 @@ export function BusinessEditModal({
               value={field.value}
               onChange={field.onChange}
               errorMessage={errors.entityType?.message}
+              allowedTypes={allowedEntityTypes}
             />
           )}
         />

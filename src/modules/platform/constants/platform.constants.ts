@@ -1,3 +1,11 @@
+import type { ModuleKey } from '../types/platform.types';
+
+/** Mirrors the backend's `ModuleKey.choices` (apps/platform/constants.py) — the optional modules an Ultra Admin can enable per tenant. */
+export const MODULE_OPTIONS: { value: ModuleKey; label: string }[] = [
+  { value: 'payment_terminals', label: 'Payment Terminals' },
+  { value: 'reports', label: 'Reports' },
+];
+
 /** Route paths owned by the platform module — imported by the router, never hardcoded at call sites. */
 export const PLATFORM_ROUTES = {
   dashboard: '/platform',

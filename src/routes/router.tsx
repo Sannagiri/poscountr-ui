@@ -38,6 +38,7 @@ import { InvoiceSettingsPage, OrderSettingsPage, PurchaseSettingsPage } from '@/
 import { TeamAdminsPage, TeamStaffPage } from '@/modules/team';
 
 import { RequireAuth } from './guards/RequireAuth';
+import { RequireModule } from './guards/RequireModule';
 import { RequireRole } from './guards/RequireRole';
 import { HomeRedirect } from './HomeRedirect';
 import { NotFoundPage } from './NotFoundPage';
@@ -99,14 +100,24 @@ export const router = createBrowserRouter([
               { path: '/quotations/new', element: <NewQuotationPage /> },
               { path: '/quotations/:quotationId', element: <QuotationDetailPage /> },
               { path: '/kitchen', element: <KitchenPage /> },
-              // Old combined-tabs URL — redirect to the first (so far only)
-              // report rather than 404 anyone with it bookmarked (same
-              // "old combined URL" pattern as `/team`/`/settings` below).
-              { path: '/reports', element: <Navigate to="/reports/sales" replace /> },
-              { path: '/reports/sales', element: <SalesReportsPage /> },
-              { path: '/reports/purchases', element: <PurchaseReportsPage /> },
-              { path: '/reports/gst', element: <GstReportsPage /> },
-              { path: '/reports/compare', element: <CompareReportsPage /> },
+              {
+                // Module gate nested inside the OWNER_ROLES role gate —
+                // orthogonal checks, both must pass. Ultra Admin controls
+                // this per tenant independent of license/role
+                // (`Tenant.enabled_modules`, see `RequireModule`).
+                element: <RequireModule module="reports" />,
+                children: [
+                  // Old combined-tabs URL — redirect to the first (so far
+                  // only) report rather than 404 anyone with it bookmarked
+                  // (same "old combined URL" pattern as `/team`/`/settings`
+                  // below).
+                  { path: '/reports', element: <Navigate to="/reports/sales" replace /> },
+                  { path: '/reports/sales', element: <SalesReportsPage /> },
+                  { path: '/reports/purchases', element: <PurchaseReportsPage /> },
+                  { path: '/reports/gst', element: <GstReportsPage /> },
+                  { path: '/reports/compare', element: <CompareReportsPage /> },
+                ],
+              },
             ],
           },
           {
@@ -115,7 +126,10 @@ export const router = createBrowserRouter([
               { path: '/businesses', element: <BusinessesPage /> },
               { path: '/locations', element: <LocationsPage /> },
               { path: '/payment-details', element: <PaymentDetailsPage /> },
-              { path: '/payment-terminals', element: <PaymentTerminalsPage /> },
+              {
+                element: <RequireModule module="payment_terminals" />,
+                children: [{ path: '/payment-terminals', element: <PaymentTerminalsPage /> }],
+              },
               // One page for both create and edit (`id === 'new'` means
               // create) — see `LayoutEditorPage`'s own doc comment for why
               // this doesn't split into a dedicated `/layouts/new` route +

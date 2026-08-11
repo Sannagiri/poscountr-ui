@@ -86,6 +86,8 @@ export const authService = {
       tenant_id: string | null;
       tenant_name: string | null;
       must_change_pin: boolean;
+      allowed_entity_types: CurrentUser['allowedEntityTypes'];
+      enabled_modules: CurrentUser['enabledModules'];
     };
     return {
       id: raw.id,
@@ -96,6 +98,8 @@ export const authService = {
       tenantId: raw.tenant_id,
       tenantName: raw.tenant_name,
       mustChangePin: raw.must_change_pin,
+      allowedEntityTypes: raw.allowed_entity_types,
+      enabledModules: raw.enabled_modules,
     };
   },
 

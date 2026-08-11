@@ -16,6 +16,7 @@ export type {
   AuditLogEntry,
   CreateTenantRequest,
   LicenseType,
+  ModuleKey,
   PlatformAdmin,
   Tenant,
   TenantAdmin,

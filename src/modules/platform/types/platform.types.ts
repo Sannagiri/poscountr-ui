@@ -4,9 +4,14 @@
  * (docs/coding-standards.md §25, POSCountr/progress/04_platform_ultra_admin.md).
  */
 
+import type { EntityType } from '@/modules/businesses/types/businesses.types';
+
 export type TenantStatus = 'trial' | 'active' | 'suspended';
 
 export type EnforcementMode = 'lenient' | 'strict';
+
+/** Mirrors `apps/platform/constants.py`'s `ModuleKey` — optional modules gated per tenant. */
+export type ModuleKey = 'payment_terminals' | 'reports';
 
 /** A "business" in ultra_admin language — the platform's Tenant record. */
 export interface Tenant {
@@ -17,6 +22,8 @@ export interface Tenant {
   status: TenantStatus;
   isActive: boolean;
   enforcementMode: EnforcementMode;
+  allowedEntityTypes: EntityType[];
+  enabledModules: ModuleKey[];
   licenseTypeId: string | null;
   licenseTypeName: string | null;
   licenseValidFrom: string | null;
@@ -58,6 +65,8 @@ export interface UpdateTenantRequest {
   licenseValidFrom?: string | null;
   licenseValidUntil?: string | null;
   enforcementMode?: EnforcementMode;
+  allowedEntityTypes?: EntityType[];
+  enabledModules?: ModuleKey[];
 }
 
 export interface LicenseType {
@@ -152,7 +161,8 @@ export type AuditLogAction =
   | 'ultra_admin_created'
   | 'ultra_admin_activated'
   | 'ultra_admin_deactivated'
-  | 'tenant_admin_added';
+  | 'tenant_admin_added'
+  | 'tenant_access_updated';
 
 /**
  * A single platform-level audit entry. Only IDs are exposed for

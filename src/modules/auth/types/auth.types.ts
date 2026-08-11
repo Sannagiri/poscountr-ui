@@ -4,6 +4,9 @@
  * here (docs/coding-standards.md §25).
  */
 
+import type { EntityType } from '@/modules/businesses/types/businesses.types';
+import type { ModuleKey } from '@/modules/platform/types/platform.types';
+
 export type UserRole = 'ultra_admin' | 'tenant_admin' | 'manager' | 'kitchen_staff';
 
 export type Client = 'web';
@@ -53,4 +56,6 @@ export interface CurrentUser {
   tenantId: string | null;
   tenantName: string | null;
   mustChangePin: boolean;
+  allowedEntityTypes: EntityType[];
+  enabledModules: ModuleKey[];
 }

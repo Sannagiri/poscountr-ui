@@ -5,6 +5,7 @@ import { Users } from 'lucide-react';
 import {
   Badge,
   Button,
+  Checkbox,
   ConfirmDialog,
   DatePicker,
   ErrorMessage,
@@ -16,7 +17,9 @@ import {
 import { describeApiError } from '@/utils/errors';
 import { statusLabel, toneForStatus } from '@/utils/status';
 
-import { PLATFORM_QUERY_KEYS } from '../../constants/platform.constants';
+import { ENTITY_TYPE_OPTIONS } from '@/modules/businesses/constants/businesses.constants';
+
+import { MODULE_OPTIONS, PLATFORM_QUERY_KEYS } from '../../constants/platform.constants';
 import { useLicenseTypes } from '../../hooks/useLicenseTypes';
 import { useTenant } from '../../hooks/useTenant';
 import { platformService } from '../../services/platformService';
@@ -78,6 +81,8 @@ export function TenantEditModal({ tenantId, onOpenChange }: TenantEditModalProps
       licenseValidFrom: tenantQuery.data.licenseValidFrom ?? '',
       licenseValidUntil: tenantQuery.data.licenseValidUntil ?? '',
       enforcementMode: tenantQuery.data.enforcementMode,
+      allowedEntityTypes: tenantQuery.data.allowedEntityTypes,
+      enabledModules: tenantQuery.data.enabledModules,
     });
   }, [tenantQuery.data, reset]);
 
@@ -94,6 +99,8 @@ export function TenantEditModal({ tenantId, onOpenChange }: TenantEditModalProps
         licenseValidFrom: values.licenseValidFrom || null,
         licenseValidUntil: values.licenseValidUntil || null,
         enforcementMode: values.enforcementMode,
+        allowedEntityTypes: values.allowedEntityTypes,
+        enabledModules: values.enabledModules,
       }),
     onSuccess: (tenant) => {
       queryClient.setQueryData(PLATFORM_QUERY_KEYS.tenant(tenant.id), tenant);
@@ -240,6 +247,74 @@ export function TenantEditModal({ tenantId, onOpenChange }: TenantEditModalProps
                   name={field.name}
                   errorMessage={errors.licenseValidUntil?.message}
                 />
+              )}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-ink">Allowed business types</span>
+            <p className="text-xs text-ink-faint">
+              Business types this tenant may create businesses as.
+            </p>
+            <Controller
+              name="allowedEntityTypes"
+              control={control}
+              render={({ field }) => (
+                <div className="grid grid-cols-2 gap-2">
+                  {ENTITY_TYPE_OPTIONS.map((option) => {
+                    const checked = field.value?.includes(option.value) ?? false;
+                    return (
+                      <label key={option.value} className="flex items-center gap-2">
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(next) =>
+                            field.onChange(
+                              next
+                                ? [...(field.value ?? []), option.value]
+                                : (field.value ?? []).filter((value) => value !== option.value),
+                            )
+                          }
+                          label={option.label}
+                        />
+                        <span className="text-sm text-ink">{option.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-ink">Optional modules</span>
+            <p className="text-xs text-ink-faint">
+              Independent of the license plan — gates access for this tenant only.
+            </p>
+            <Controller
+              name="enabledModules"
+              control={control}
+              render={({ field }) => (
+                <div className="flex flex-col gap-2">
+                  {MODULE_OPTIONS.map((option) => {
+                    const checked = field.value?.includes(option.value) ?? false;
+                    return (
+                      <label key={option.value} className="flex items-center gap-2">
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(next) =>
+                            field.onChange(
+                              next
+                                ? [...(field.value ?? []), option.value]
+                                : (field.value ?? []).filter((value) => value !== option.value),
+                            )
+                          }
+                          label={option.label}
+                        />
+                        <span className="text-sm text-ink">{option.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
               )}
             />
           </div>
