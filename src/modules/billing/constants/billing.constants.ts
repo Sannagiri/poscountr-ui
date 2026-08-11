@@ -43,6 +43,9 @@ export const PAYMENT_METHOD_OPTIONS: { value: PaymentMethod; label: string }[] =
 /** Backend's own doc comment on `KDSListView` says "poll every 3–5s" until the realtime (Channels) upgrade lands — 4s splits the difference. */
 export const KDS_POLL_INTERVAL_MS = 4000;
 
+/** How often `useOrder({ poll: true })` re-fetches while `TerminalPaymentPanel` waits for a gateway webhook to complete the order — same realtime-upgrade caveat as `KDS_POLL_INTERVAL_MS` above. */
+export const PAYMENT_STATUS_POLL_INTERVAL_MS = 3000;
+
 /** Mirrors `KDS_LATE_THRESHOLD_MINUTES` (apps/billing/constants.py) — the backend already returns `isLate` computed, this is just for copy that references the threshold itself (e.g. "late after 15 min"). */
 export const KDS_LATE_THRESHOLD_MINUTES = 15;
 

@@ -51,6 +51,7 @@ import {
   inventoryService,
   useProducts,
 } from '@/modules/inventory';
+import { TerminalPaymentPanel } from '@/modules/paymentTerminals';
 import { useOrderSettings } from '@/modules/settings';
 import type { Table } from '@/modules/tables';
 import { TableSelectScreen } from '@/modules/tables';
@@ -58,6 +59,7 @@ import { TableSelectScreen } from '@/modules/tables';
 import { PaymentMethodGrid } from '../components/PaymentMethodGrid';
 import { BILLING_ROUTES, ORDER_TYPE_OPTIONS } from '../constants/billing.constants';
 import { useAutoSelectSingle } from '../hooks/useAutoSelectSingle';
+import { useOrder } from '../hooks/useOrder';
 import { useOrderBill } from '../hooks/useOrderBill';
 import { billingService } from '../services/billingService';
 import type {
@@ -67,6 +69,7 @@ import type {
   OrderStatus,
   OrderType,
   PaymentMethod,
+  PaymentMethodSelection,
 } from '../types/billing.types';
 import type { OrderCreateFormValues } from '../validations/billing.validation';
 import { buildOrderCreateSchema } from '../validations/billing.validation';
@@ -620,8 +623,18 @@ export function NewOrderPage() {
   // decision — `null` means the modal is closed.
   const [pendingOrder, setPendingOrder] = useState<Order | null>(null);
   const [paymentStep, setPaymentStep] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  // "Terminal" is one more tile on the same PaymentMethodGrid, not a
+  // separate mode picker — see PaymentMethodSelection's own doc comment.
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodSelection>('cash');
   const [amountTendered, setAmountTendered] = useState('');
+
+  // Backs the "Terminal" tile specifically — see TerminalPaymentPanel's own
+  // doc comment on why this page (not that component) owns the
+  // order-polling: it already has `useOrder` in scope, and the component
+  // can't import it back without creating a paymentTerminals <-> billing
+  // module cycle.
+  const [pollTerminalPayment, setPollTerminalPayment] = useState(false);
+  const terminalOrderQuery = useOrder(pendingOrder?.id, { poll: pollTerminalPayment });
 
   // Pre-fills with the order's own total — exact change is the common case, so this saves
   // re-typing the amount that's already right there on screen; still fully editable for a
@@ -688,6 +701,7 @@ export function NewOrderPage() {
     setPaymentStep(false);
     setPaymentMethod('cash');
     setAmountTendered('');
+    setPollTerminalPayment(false);
     setCart({});
     setOrderDiscountPercent('0');
     setProductSearch('');
@@ -830,11 +844,14 @@ export function NewOrderPage() {
   });
 
   const completePaymentMutation = useMutation({
+    // Only reachable via the "Confirm payment" button, itself only rendered
+    // while `paymentMethod !== 'terminal'` (see the footer below) — the cast
+    // just reflects that at the type level.
     mutationFn: () =>
       advanceOrder(
         (pendingOrder as Order).id,
         isFoodFlow ? COMPLETED_FOOD_CHAIN : COMPLETED_NONFOOD_CHAIN,
-        { paymentMethod },
+        { paymentMethod: paymentMethod as PaymentMethod },
       ),
     onSuccess: ({ warning }) => {
       showToast({
@@ -1310,19 +1327,21 @@ export function NewOrderPage() {
               ? 'Send it to the kitchen, or skip straight to delivered/completed for a counter item that needs no prep.'
               : 'Take payment to complete this order.'
         }
-        size="sm"
+        size={paymentStep ? 'md' : 'sm'}
         footer={
           paymentStep ? (
             <>
               <Button variant="secondary" onClick={() => setPaymentStep(false)}>
                 Back
               </Button>
-              <Button
-                isLoading={completePaymentMutation.isPending}
-                onClick={() => completePaymentMutation.mutate()}
-              >
-                Confirm payment
-              </Button>
+              {paymentMethod !== 'terminal' ? (
+                <Button
+                  isLoading={completePaymentMutation.isPending}
+                  onClick={() => completePaymentMutation.mutate()}
+                >
+                  Confirm payment
+                </Button>
+              ) : null}
             </>
           ) : isFoodFlow ? (
             <div className="flex w-full flex-col gap-2">
@@ -1379,19 +1398,41 @@ export function NewOrderPage() {
         {paymentStep ? (
           <div className="flex flex-col gap-4">
             <PaymentMethodGrid value={paymentMethod} onChange={setPaymentMethod} />
-            <Input
-              label="Amount received"
-              type="number"
-              inputMode="decimal"
-              value={amountTendered}
-              onChange={(event) => setAmountTendered(event.target.value)}
-              placeholder={amountToCollect.toFixed(2)}
-            />
-            {amountTendered ? (
-              <p className="text-sm text-ink-soft">
-                Change due: <span className="font-semibold text-ink">₹{changeDue.toFixed(2)}</span>
-              </p>
-            ) : null}
+            {paymentMethod === 'terminal' ? (
+              pendingOrder ? (
+                <TerminalPaymentPanel
+                  orderId={pendingOrder.id}
+                  amount={pendingOrder.total}
+                  isCompleted={terminalOrderQuery.data?.status === 'completed'}
+                  onInitiated={() => setPollTerminalPayment(true)}
+                  onCompleted={() => {
+                    showToast({ tone: 'success', message: 'Payment recorded — order completed.' });
+                    closeModalAndReset();
+                  }}
+                  onCancel={() => {
+                    setPollTerminalPayment(false);
+                    setPaymentMethod('cash');
+                  }}
+                />
+              ) : null
+            ) : (
+              <>
+                <Input
+                  label="Amount received"
+                  type="number"
+                  inputMode="decimal"
+                  value={amountTendered}
+                  onChange={(event) => setAmountTendered(event.target.value)}
+                  placeholder={amountToCollect.toFixed(2)}
+                />
+                {amountTendered ? (
+                  <p className="text-sm text-ink-soft">
+                    Change due:{' '}
+                    <span className="font-semibold text-ink">₹{changeDue.toFixed(2)}</span>
+                  </p>
+                ) : null}
+              </>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-1 text-sm text-ink-soft">

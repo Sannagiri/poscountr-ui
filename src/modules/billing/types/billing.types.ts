@@ -20,6 +20,16 @@ export type OrderType = 'dine_in' | 'takeaway' | 'delivery';
 /** Mirrors `PaymentMethod.choices` (apps/billing/constants.py) — set only at completion. */
 export type PaymentMethod = 'cash' | 'card' | 'upi' | 'wallet' | 'other';
 
+/**
+ * What `PaymentMethodGrid` actually selects — every real `PaymentMethod`
+ * plus `'terminal'`, a client-only choice that isn't a completion value at
+ * all. Picking it swaps the completion step over to `TerminalPaymentPanel`
+ * instead of collecting a payment method directly; the real `PaymentMethod`
+ * gets set later, server-side, once the gateway's webhook reports how the
+ * customer actually paid (see apps.payment_gateways.services.payment_intent_service).
+ */
+export type PaymentMethodSelection = PaymentMethod | 'terminal';
+
 /** `product` = catalog-backed line; `adhoc` = a typed-in one-time/external
  * line with no `Product` behind it (`productId`/`unit`/`hsnCode` are `null`). */
 export type LineType = 'product' | 'adhoc';

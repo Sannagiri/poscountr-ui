@@ -49,6 +49,7 @@ import {
   inventoryService,
   useProducts,
 } from '@/modules/inventory';
+import { TerminalPaymentPanel } from '@/modules/paymentTerminals';
 
 import { OrderBillPreviewModal } from '../components/OrderBillPreviewModal';
 import { PaymentMethodGrid } from '../components/PaymentMethodGrid';
@@ -70,6 +71,7 @@ import type {
   OrderItemRequest,
   OrderStatus,
   PaymentMethod,
+  PaymentMethodSelection,
 } from '../types/billing.types';
 import { PHONE_REGEX } from '../validations/billing.validation';
 
@@ -140,7 +142,12 @@ export function OrderDetailPage() {
   const { showToast } = useToast();
   const currentUser = useAuthStore((state) => state.user);
 
-  const orderQuery = useOrder(orderId);
+  // Backs the "Terminal" tile on PaymentMethodGrid specifically — see
+  // TerminalPaymentPanel's own doc comment on why this page (not that
+  // component) owns the order-polling.
+  const [pollTerminalPayment, setPollTerminalPayment] = useState(false);
+
+  const orderQuery = useOrder(orderId, { poll: pollTerminalPayment });
   const order = orderQuery.data;
   // This order's location is fixed (set at creation) — the effective,
   // location-resolved price/discount for a product being added here should
@@ -182,7 +189,10 @@ export function OrderDetailPage() {
   // Discounts aren't asked here — they're set earlier, while the order was
   // being built (order-level at creation, per-line when a line was added).
   const [pendingComplete, setPendingComplete] = useState(false);
-  const [completionPaymentMethod, setCompletionPaymentMethod] = useState<PaymentMethod>('cash');
+  // "Terminal" is one more tile on PaymentMethodGrid, not a separate mode
+  // picker — see PaymentMethodSelection's own doc comment.
+  const [completionPaymentMethod, setCompletionPaymentMethod] =
+    useState<PaymentMethodSelection>('cash');
   // Editable, not just a read-only "amount to collect" line — the actual amount handed over can
   // differ from the order total (a goodwill discount given verbally, a friends/family price),
   // same reasoning New Order's own amount-received field already applies. Purely a cashier UX
@@ -203,9 +213,12 @@ export function OrderDetailPage() {
   }
 
   const transitionMutation = useMutation({
+    // The 'completed' branch is only reachable via "Confirm payment", itself
+    // only rendered while `completionPaymentMethod !== 'terminal'` — the
+    // cast just reflects that at the type level.
     mutationFn: (target: Exclude<OrderStatus, 'pending'>) =>
       target === 'completed'
-        ? billingService.complete(orderId as string, completionPaymentMethod)
+        ? billingService.complete(orderId as string, completionPaymentMethod as PaymentMethod)
         : TARGET_TO_SERVICE_CALL[target](orderId as string),
     onSuccess: ({ order: updatedOrder, warning, invoice }, target) => {
       invalidateOrder();
@@ -447,7 +460,10 @@ export function OrderDetailPage() {
   );
 
   function openCompleteModal() {
+    if (!order) return;
     setCompletionAmountTendered(order.total);
+    setCompletionPaymentMethod('cash');
+    setPollTerminalPayment(false);
     setPendingComplete(true);
   }
 
@@ -907,24 +923,29 @@ export function OrderDetailPage() {
       <Modal
         open={pendingComplete}
         onOpenChange={(open) => {
-          if (!open) setPendingComplete(false);
+          if (!open) {
+            setPendingComplete(false);
+            setPollTerminalPayment(false);
+          }
         }}
         title="Complete order"
         description={`Amount to collect: ₹${completionAmountToCollect.toFixed(2)}`}
-        size="sm"
+        size={completionPaymentMethod === 'terminal' ? 'md' : 'sm'}
         footer={
           <>
             <Button variant="secondary" onClick={() => setPendingComplete(false)}>
               Back
             </Button>
-            <Button
-              isLoading={
-                transitionMutation.isPending && transitionMutation.variables === 'completed'
-              }
-              onClick={() => transitionMutation.mutate('completed')}
-            >
-              Confirm payment
-            </Button>
+            {completionPaymentMethod !== 'terminal' ? (
+              <Button
+                isLoading={
+                  transitionMutation.isPending && transitionMutation.variables === 'completed'
+                }
+                onClick={() => transitionMutation.mutate('completed')}
+              >
+                Confirm payment
+              </Button>
+            ) : null}
           </>
         }
       >
@@ -933,20 +954,41 @@ export function OrderDetailPage() {
             value={completionPaymentMethod}
             onChange={setCompletionPaymentMethod}
           />
-          <Input
-            label="Amount received"
-            type="number"
-            inputMode="decimal"
-            value={completionAmountTendered}
-            onChange={(event) => setCompletionAmountTendered(event.target.value)}
-            placeholder={completionAmountToCollect.toFixed(2)}
-          />
-          {completionAmountTendered ? (
-            <p className="text-sm text-ink-soft">
-              Change due:{' '}
-              <span className="font-semibold text-ink">₹{completionChangeDue.toFixed(2)}</span>
-            </p>
-          ) : null}
+          {completionPaymentMethod === 'terminal' ? (
+            <TerminalPaymentPanel
+              orderId={order.id}
+              amount={order.total}
+              isCompleted={order.status === 'completed'}
+              onInitiated={() => setPollTerminalPayment(true)}
+              onCompleted={() => {
+                invalidateOrder();
+                setPendingComplete(false);
+                setPollTerminalPayment(false);
+                showToast({ tone: 'success', message: 'Payment recorded — order completed.' });
+              }}
+              onCancel={() => {
+                setPollTerminalPayment(false);
+                setCompletionPaymentMethod('cash');
+              }}
+            />
+          ) : (
+            <>
+              <Input
+                label="Amount received"
+                type="number"
+                inputMode="decimal"
+                value={completionAmountTendered}
+                onChange={(event) => setCompletionAmountTendered(event.target.value)}
+                placeholder={completionAmountToCollect.toFixed(2)}
+              />
+              {completionAmountTendered ? (
+                <p className="text-sm text-ink-soft">
+                  Change due:{' '}
+                  <span className="font-semibold text-ink">₹{completionChangeDue.toFixed(2)}</span>
+                </p>
+              ) : null}
+            </>
+          )}
         </div>
       </Modal>
 

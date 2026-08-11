@@ -1,0 +1,1 @@
+export { PaymentTerminalFormModal } from './PaymentTerminalFormModal';

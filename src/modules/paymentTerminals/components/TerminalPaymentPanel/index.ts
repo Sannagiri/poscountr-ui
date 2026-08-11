@@ -1,0 +1,1 @@
+export { TerminalPaymentPanel } from './TerminalPaymentPanel';

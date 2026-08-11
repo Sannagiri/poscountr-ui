@@ -12,6 +12,7 @@ import {
 import { ProductsPage } from '@/modules/inventory';
 import { NotificationsPage } from '@/modules/notifications';
 import { PaymentDetailsPage } from '@/modules/paymentDetails';
+import { PaymentTerminalsPage } from '@/modules/paymentTerminals';
 import {
   AuditLogPage,
   LicenseTypesPage,
@@ -114,6 +115,7 @@ export const router = createBrowserRouter([
               { path: '/businesses', element: <BusinessesPage /> },
               { path: '/locations', element: <LocationsPage /> },
               { path: '/payment-details', element: <PaymentDetailsPage /> },
+              { path: '/payment-terminals', element: <PaymentTerminalsPage /> },
               // One page for both create and edit (`id === 'new'` means
               // create) — see `LayoutEditorPage`'s own doc comment for why
               // this doesn't split into a dedicated `/layouts/new` route +

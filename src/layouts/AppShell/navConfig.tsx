@@ -3,6 +3,7 @@ import {
   BarChart3,
   Boxes,
   ChefHat,
+  CreditCard,
   FileClock,
   GitCompare,
   History,
@@ -171,6 +172,15 @@ export const OWNER_NAV_GROUPS: NavGroup[] = [
         label: 'Payment Details',
         path: '/payment-details',
         icon: <Landmark size={ICON_SIZE} />,
+        roles: ['tenant_admin'],
+      },
+      {
+        // Location-scoped (each machine has its own MID), unlike Payment
+        // Details above (business-wide bank accounts/UPI IDs) — same
+        // tenant_admin-only administration surface either way.
+        label: 'Payment Terminals',
+        path: '/payment-terminals',
+        icon: <CreditCard size={ICON_SIZE} />,
         roles: ['tenant_admin'],
       },
       {
