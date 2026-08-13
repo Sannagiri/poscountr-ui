@@ -7,6 +7,7 @@ import { describeApiError } from '@/utils/errors';
 import { useLocations } from '@/modules/businesses';
 
 import {
+  CHECKOUT_METHOD_OPTIONS,
   PAYMENT_TERMINALS_QUERY_KEYS,
   PROVIDER_OPTIONS,
 } from '../../constants/paymentTerminals.constants';
@@ -32,6 +33,7 @@ export interface PaymentTerminalFormModalProps {
 const EMPTY_VALUES: PaymentTerminalFormValues = {
   locationId: '',
   provider: 'razorpay',
+  checkoutMethod: 'qr_code',
   label: '',
   mid: '',
   tid: '',
@@ -46,6 +48,7 @@ function defaultValuesFor(paymentTerminal: PaymentTerminal | undefined): Payment
   return {
     locationId: paymentTerminal.locationId,
     provider: paymentTerminal.provider,
+    checkoutMethod: paymentTerminal.checkoutMethod,
     label: paymentTerminal.label,
     mid: paymentTerminal.mid,
     tid: paymentTerminal.tid,
@@ -110,6 +113,7 @@ export function PaymentTerminalFormModal({
     mutationFn: async (values: PaymentTerminalFormValues) => {
       if (editingPaymentTerminal) {
         return paymentTerminalsService.updatePaymentTerminal(editingPaymentTerminal.id, {
+          checkoutMethod: values.checkoutMethod,
           label: values.label,
           mid: values.mid,
           tid: values.tid || '',
@@ -122,6 +126,7 @@ export function PaymentTerminalFormModal({
       return paymentTerminalsService.createPaymentTerminal({
         locationId: values.locationId,
         provider: values.provider,
+        checkoutMethod: values.checkoutMethod,
         label: values.label,
         mid: values.mid,
         tid: values.tid || undefined,
@@ -209,6 +214,22 @@ export function PaymentTerminalFormModal({
             )}
           />
         </div>
+
+        <Controller
+          name="checkoutMethod"
+          control={control}
+          render={({ field }) => (
+            <Select
+              label="Checkout method"
+              hint="Switch anytime — e.g. use Payment Link until QR Code is activated on your Razorpay account"
+              options={CHECKOUT_METHOD_OPTIONS}
+              value={field.value}
+              onChange={field.onChange}
+              onBlur={field.onBlur}
+              name={field.name}
+            />
+          )}
+        />
 
         <Input
           label="Label"

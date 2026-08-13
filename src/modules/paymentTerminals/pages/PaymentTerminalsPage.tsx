@@ -20,6 +20,7 @@ import { useLocations } from '@/modules/businesses';
 
 import { PaymentTerminalFormModal } from '../components/PaymentTerminalFormModal';
 import {
+  CHECKOUT_METHOD_OPTIONS,
   PAYMENT_TERMINALS_QUERY_KEYS,
   PROVIDER_OPTIONS,
 } from '../constants/paymentTerminals.constants';
@@ -40,6 +41,13 @@ const PROVIDER_FILTER_OPTIONS = [{ value: 'all', label: 'All gateways' }, ...PRO
 
 function providerLabel(provider: PaymentGatewayProvider): string {
   return PROVIDER_OPTIONS.find((option) => option.value === provider)?.label ?? provider;
+}
+
+function checkoutMethodLabel(paymentTerminal: PaymentTerminal): string {
+  return (
+    CHECKOUT_METHOD_OPTIONS.find((option) => option.value === paymentTerminal.checkoutMethod)
+      ?.label ?? paymentTerminal.checkoutMethod
+  );
 }
 
 function matchesSearch(paymentTerminal: PaymentTerminal, query: string): boolean {
@@ -240,6 +248,7 @@ export function PaymentTerminalsPage() {
                   <div className="mt-auto flex flex-wrap items-center gap-2">
                     <Badge tone="accent">{row.locationName}</Badge>
                     <Badge tone="neutral">{providerLabel(row.provider)}</Badge>
+                    <Badge tone="neutral">{checkoutMethodLabel(row)}</Badge>
                     <Badge tone={toneForStatus(row.isActive ? 'active' : 'inactive')}>
                       {row.isActive ? 'Active' : 'Inactive'}
                     </Badge>

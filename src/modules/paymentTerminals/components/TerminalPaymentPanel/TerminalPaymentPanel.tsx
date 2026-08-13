@@ -4,8 +4,9 @@ import { CreditCard } from 'lucide-react';
 import { Button, Loader, useToast } from '@/components';
 import { describeApiError } from '@/utils/errors';
 
+import { CHECKOUT_METHOD_OPTIONS } from '../../constants/paymentTerminals.constants';
 import { paymentTerminalsService } from '../../services/paymentTerminalsService';
-import type { PaymentIntent } from '../../types/paymentTerminals.types';
+import type { CheckoutMethod, PaymentIntent } from '../../types/paymentTerminals.types';
 
 import { useMutation } from '@tanstack/react-query';
 
@@ -48,8 +49,13 @@ export function TerminalPaymentPanel({
   const { showToast } = useToast();
   const [intent, setIntent] = useState<PaymentIntent | null>(null);
 
+  // Each tile below fires this directly with its own method — no separate
+  // confirm step. The method passed here overrides the terminal's own
+  // configured default for this one attempt (see
+  // paymentTerminalsService.initiatePayment's own doc comment).
   const initiateMutation = useMutation({
-    mutationFn: () => paymentTerminalsService.initiatePayment(orderId),
+    mutationFn: (method: CheckoutMethod) =>
+      paymentTerminalsService.initiatePayment(orderId, method),
     onSuccess: (result) => {
       setIntent(result);
       onInitiated();
@@ -78,9 +84,19 @@ export function TerminalPaymentPanel({
           Push ₹{amount} to this location&apos;s EDC/UPI machine — the order completes on its own
           once the payment is confirmed.
         </p>
-        <Button isLoading={initiateMutation.isPending} onClick={() => initiateMutation.mutate()}>
-          Pay via terminal
-        </Button>
+        <div className="flex gap-2">
+          {CHECKOUT_METHOD_OPTIONS.map((option) => (
+            <Button
+              key={option.value}
+              variant="secondary"
+              isLoading={initiateMutation.isPending && initiateMutation.variables === option.value}
+              disabled={initiateMutation.isPending && initiateMutation.variables !== option.value}
+              onClick={() => initiateMutation.mutate(option.value)}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </div>
       </div>
     );
   }

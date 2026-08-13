@@ -1,4 +1,4 @@
-import type { PaymentGatewayProvider } from '../types/paymentTerminals.types';
+import type { CheckoutMethod, PaymentGatewayProvider } from '../types/paymentTerminals.types';
 
 /** Route paths owned by the paymentTerminals module — imported by the router, never hardcoded at call sites. */
 export const PAYMENT_TERMINALS_ROUTES = {
@@ -25,4 +25,10 @@ export const PROVIDER_OPTIONS: { value: PaymentGatewayProvider; label: string }[
   { value: 'razorpay', label: 'Razorpay' },
   { value: 'phonepe', label: 'PhonePe Business' },
   { value: 'paytm', label: 'Paytm EDC' },
+];
+
+/** Mirrors the backend's `CheckoutMethod.choices`. */
+export const CHECKOUT_METHOD_OPTIONS: { value: CheckoutMethod; label: string }[] = [
+  { value: 'qr_code', label: 'QR Code' },
+  { value: 'payment_link', label: 'Payment Link' },
 ];

@@ -1,6 +1,7 @@
 import { apiClient, unwrap } from '@/services/apiClient';
 
 import type {
+  CheckoutMethod,
   PaymentGatewayProvider,
   PaymentIntent,
   PaymentIntentStatus,
@@ -20,6 +21,7 @@ interface PaymentTerminalRaw {
   location_id: string;
   location_name: string;
   provider: PaymentGatewayProvider;
+  checkout_method: CheckoutMethod;
   label: string;
   mid: string;
   tid: string;
@@ -41,6 +43,8 @@ interface PaymentIntentRaw {
     razorpay_order_id?: string;
     upi_qr_id?: string;
     upi_qr_image_url?: string;
+    payment_link_id?: string;
+    payment_link_url?: string;
   };
 }
 
@@ -50,6 +54,7 @@ function mapPaymentTerminal(raw: PaymentTerminalRaw): PaymentTerminal {
     locationId: raw.location_id,
     locationName: raw.location_name,
     provider: raw.provider,
+    checkoutMethod: raw.checkout_method,
     label: raw.label,
     mid: raw.mid,
     tid: raw.tid,
@@ -74,6 +79,8 @@ function mapPaymentIntent(raw: PaymentIntentRaw): PaymentIntent {
       razorpayOrderId: payload.razorpay_order_id,
       upiQrId: payload.upi_qr_id,
       upiQrImageUrl: payload.upi_qr_image_url,
+      paymentLinkId: payload.payment_link_id,
+      paymentLinkUrl: payload.payment_link_url,
     },
   };
 }
@@ -82,6 +89,7 @@ function createRequestToBody(request: PaymentTerminalCreateRequest) {
   return {
     location_id: request.locationId,
     provider: request.provider,
+    checkout_method: request.checkoutMethod,
     label: request.label,
     mid: request.mid,
     tid: request.tid,
@@ -95,6 +103,7 @@ function createRequestToBody(request: PaymentTerminalCreateRequest) {
 /** Omits `api_secret`/`webhook_secret` entirely when blank — see the type's own doc comment on why sending `''` there would be destructive. */
 function updateRequestToBody(request: PaymentTerminalUpdateRequest) {
   const body: Record<string, string> = {};
+  if (request.checkoutMethod !== undefined) body.checkout_method = request.checkoutMethod;
   if (request.label !== undefined) body.label = request.label;
   if (request.mid !== undefined) body.mid = request.mid;
   if (request.tid !== undefined) body.tid = request.tid;
@@ -178,10 +187,16 @@ export const paymentTerminalsService = {
    * `completed` server-side) — the caller is expected to poll the order
    * (see `useOrder`'s `poll` option) rather than treat this call's response
    * as the payment outcome.
+   *
+   * `checkoutMethod` overrides the terminal's own configured default for
+   * this one attempt (e.g. the checkout screen's QR Code/Payment Link
+   * picker) — omit it to use whatever the terminal is set to.
    */
-  async initiatePayment(orderId: string): Promise<PaymentIntent> {
+  async initiatePayment(orderId: string, checkoutMethod?: CheckoutMethod): Promise<PaymentIntent> {
     const raw = await unwrap<PaymentIntentRaw>(
-      apiClient.post(`/tenant/orders/${orderId}/initiate-payment/`),
+      apiClient.post(`/tenant/orders/${orderId}/initiate-payment/`, {
+        checkout_method: checkoutMethod,
+      }),
     );
     return mapPaymentIntent(raw);
   },

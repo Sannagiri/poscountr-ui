@@ -14,6 +14,7 @@ export function paymentTerminalSchema(isEditing: boolean) {
     .object({
       locationId: z.string().min(1, 'Select a location'),
       provider: z.enum(['razorpay', 'phonepe', 'paytm']),
+      checkoutMethod: z.enum(['qr_code', 'payment_link']),
       label: z.string().min(1, 'Enter a label'),
       mid: z.string().min(1, 'Enter the MID'),
       tid: z.string().optional().or(z.literal('')),

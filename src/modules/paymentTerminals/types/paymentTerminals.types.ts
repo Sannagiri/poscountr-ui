@@ -11,6 +11,18 @@
 export type PaymentGatewayProvider = 'razorpay' | 'phonepe' | 'paytm';
 
 /**
+ * Mirrors the backend's `CheckoutMethod.choices`. Which of a provider's
+ * products a terminal pushes a payment through — for Razorpay, `qr_code`
+ * uses the QR Code API (a separately-activated product some accounts don't
+ * have enabled yet), `payment_link` is the fallback that works without that
+ * activation, rendering its own QR from the payment link's URL server-side.
+ * Editable at any time (unlike `provider`/`locationId`) — a tenant_admin
+ * flips a terminal between the two as their account's activation status
+ * changes.
+ */
+export type CheckoutMethod = 'qr_code' | 'payment_link';
+
+/**
  * One EDC/UPI machine at one location. `apiKey` is the only credential ever
  * read back — `apiSecret`/`webhookSecret` are write-only server-side
  * (`PaymentTerminalOutputSerializer` never includes them), so there is
@@ -23,6 +35,7 @@ export interface PaymentTerminal {
   locationId: string;
   locationName: string;
   provider: PaymentGatewayProvider;
+  checkoutMethod: CheckoutMethod;
   label: string;
   mid: string;
   tid: string;
@@ -32,10 +45,11 @@ export interface PaymentTerminal {
   createdAt: string;
 }
 
-/** `POST /tenant/payment-terminals/` body. `locationId`/`provider` are both immutable after creation — `PaymentTerminalUpdateRequest` has neither field. */
+/** `POST /tenant/payment-terminals/` body. `locationId`/`provider` are both immutable after creation — `PaymentTerminalUpdateRequest` has neither field. `checkoutMethod` defaults server-side to `'qr_code'` when omitted. */
 export interface PaymentTerminalCreateRequest {
   locationId: string;
   provider: PaymentGatewayProvider;
+  checkoutMethod?: CheckoutMethod;
   label: string;
   mid: string;
   tid?: string;
@@ -53,6 +67,7 @@ export interface PaymentTerminalCreateRequest {
  * stored secret untouched; sending `''` would blank out a working one.
  */
 export interface PaymentTerminalUpdateRequest {
+  checkoutMethod?: CheckoutMethod;
   label?: string;
   mid?: string;
   tid?: string;
@@ -83,5 +98,7 @@ export interface PaymentIntent {
     razorpayOrderId?: string;
     upiQrId?: string;
     upiQrImageUrl?: string;
+    paymentLinkId?: string;
+    paymentLinkUrl?: string;
   };
 }
